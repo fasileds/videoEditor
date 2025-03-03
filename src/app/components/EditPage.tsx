@@ -14,6 +14,7 @@ import {
 import Header from "../components/Header";
 import { formatTime } from "../utils/formatTime";
 import TrimTools from "./TrimTools";
+import TextEditorModal from "./TextEditorModal";
 
 interface EditPageProps {
   videoUrl: string | null;
@@ -27,6 +28,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
   const [videoDuration, setVideoDuration] = useState(0);
   const [audioDuration, setAudioDuration] = useState(0);
   const [isDragging, setIsDragging] = useState<"start" | "end" | null>(null);
+  const [isOpen, setIsOpen] = useState(false)
   const [tooltipPosition, setTooltipPosition] = useState<{
     x: number;
     y: number;
@@ -74,10 +76,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
   };
 
   const handleAddText = () => {
-    const newText = prompt("Enter your text:");
-    if (newText) {
-      setTexts([...texts, newText]);
-    }
+    setIsOpen(true)
   };
 
   const handleAddComponent = (
@@ -327,6 +326,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
                         className="w-full flex items-center space-x-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white px-4 py-3 rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all transform hover:scale-105"
                       >
                         <span>Add Text</span>
+                        
                       </button>
                       {texts.map((text, index) => (
                         <div
@@ -456,6 +456,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
           <p className="text-gray-600">© 2025 VideoPro. All rights reserved.</p>
         </div>
       </footer>
+      {isOpen && <TextEditorModal isOpen={isOpen} onClose={()=>{setIsOpen(false)}} onSave={(text) => setTexts([...texts, text])}/>}
     </div>
   );
 }

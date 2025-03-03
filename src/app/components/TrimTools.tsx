@@ -3,10 +3,32 @@
 import { useState, useEffect, useRef } from "react";
 import { formatTime } from "../utils/formatTime";
 import WaveSurfer from "wavesurfer.js";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  horizontalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
+interface Segment {
+  id: string;
+  start: number;
+  end: number;
+}
 
 interface TrimToolsProps {
-  videoRef: React.RefObject<HTMLVideoElement | null>;
-  audioRef: React.RefObject<HTMLAudioElement | null>;
+  videoRef: React.RefObject<HTMLVideoElement>;
+  audioRef: React.RefObject<HTMLAudioElement>;
   startTrim: number;
   endTrim: number;
   setStartTrim: (value: number) => void;
@@ -15,12 +37,84 @@ interface TrimToolsProps {
   audioDuration: number;
   isDragging: "start" | "end" | null;
   setIsDragging: (value: "start" | "end" | null) => void;
-  tooltipPosition: { x: number; y: number } | null;
-  setTooltipPosition: (value: { x: number; y: number } | null) => void;
-  tooltipTime: string;
-  setTooltipTime: (value: string) => void;
-  trimMode: "both" | "video" | "audio";
-  setTrimMode: (mode: "both" | "video" | "audio") => void;
+  tooltipPosition: { x: number; y: number };
+  setTooltipPosition: (value: { x: number; y: number }) => void;
+  tooltipTime: number;
+  setTooltipTime: (value: number) => void;
+  trimMode: "video" | "audio" | "both";
+  setTrimMode: (value: "video" | "audio" | "both") => void;
+}
+
+// Draggable Segment Component
+function SortableSegment({
+  id,
+  start,
+  end,
+  thumbnail,
+  videoDuration,
+  onRemove,
+}: {
+  id: string;
+  start: number;
+  end: number;
+  thumbnail: string;
+  videoDuration: number;
+  onRemove: (id: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition } =
+    useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    cursor: "pointer",
+  };
+
+  console.log(`Rendering segment: ${id}`); // Debugging
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        ...style,
+        width: `${((end - start) / videoDuration) * 100}%`,
+        marginRight: "10px",
+        backgroundImage: `url(${thumbnail})`,
+      }}
+      className="flex-shrink-0 h-20 bg-cover bg-center relative"
+    >
+      {/* Drag Handle (Only this area will trigger drag events) */}
+      <div
+        {...attributes}
+        {...listeners}
+        className="absolute inset-0"
+        style={{ cursor: "grab" }}
+      />
+
+      {/* Remove Icon (X) */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation(); // Prevent triggering drag events
+          e.preventDefault(); // Prevent default behavior
+          console.log("X button clicked for segment:", id); // Debugging
+          onRemove(id); // Call the onRemove callback
+        }}
+        onMouseDown={(e) => {
+          e.stopPropagation(); // Prevent drag from starting
+          e.preventDefault(); // Prevent default behavior
+        }}
+        className="absolute top-0 right-0 p-1 bg-red-500 text-white rounded-bl-lg hover:bg-red-600"
+        style={{ zIndex: 1000, pointerEvents: "auto" }} // Ensure the button is clickable
+      >
+        ×
+      </button>
+
+      {/* Time Display */}
+      <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-center text-sm p-1">
+        {formatTime(start)} - {formatTime(end)}
+      </div>
+    </div>
+  );
 }
 
 export default function TrimTools({
@@ -42,11 +136,17 @@ export default function TrimTools({
   setTrimMode,
 }: TrimToolsProps) {
   const [thumbnails, setThumbnails] = useState<string[]>([]);
+  const [segments, setSegments] = useState<Segment[]>([
+    { id: "segment-1", start: 0, end: videoDuration },
+  ]);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [splitBarPosition, setSplitBarPosition] = useState<number | null>(null);
+  const [isSplitBarVisible, setIsSplitBarVisible] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const waveformRef = useRef<HTMLDivElement | null>(null);
   const [waveSurfer, setWaveSurfer] = useState<WaveSurfer | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
 
   // Initialize WaveSurfer for audio visualization
   useEffect(() => {
@@ -104,6 +204,66 @@ export default function TrimTools({
     extractAllFrames();
   }, [videoDuration, videoRef]);
 
+  // Update current time
+  useEffect(() => {
+    if (!videoRef.current) return;
+
+    const updateTime = () => {
+      setCurrentTime(videoRef.current!.currentTime);
+    };
+
+    videoRef.current.addEventListener("timeupdate", updateTime);
+    return () =>
+      videoRef.current!.removeEventListener("timeupdate", updateTime);
+  }, [videoRef]);
+
+  // Handle splitting the video/audio
+  const handleSplit = () => {
+    if (splitBarPosition === null) return;
+
+    const newSegmentId = `segment-${segments.length + 1}`;
+    const newSegment: Segment = {
+      id: newSegmentId,
+      start: splitBarPosition,
+      end: videoDuration,
+    };
+
+    const updatedSegments = segments.map((segment) => {
+      if (segment.end > splitBarPosition) {
+        return { ...segment, end: splitBarPosition };
+      }
+      return segment;
+    });
+
+    setSegments([...updatedSegments, newSegment]);
+    setIsSplitBarVisible(false);
+    setSplitBarPosition(null);
+  };
+
+  // Handle reordering segments with @dnd-kit/core
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = (event: any) => {
+    const { active, over } = event;
+
+    if (active.id !== over.id) {
+      setSegments((segments) => {
+        const oldIndex = segments.findIndex(
+          (segment) => segment.id === active.id
+        );
+        const newIndex = segments.findIndex(
+          (segment) => segment.id === over.id
+        );
+        return arrayMove(segments, oldIndex, newIndex);
+      });
+    }
+  };
+
   const getActiveDuration = () => {
     return trimMode === "audio" ? audioDuration : videoDuration;
   };
@@ -147,8 +307,16 @@ export default function TrimTools({
         videoRef.current.pause();
         waveSurfer.pause();
       } else {
-        videoRef.current.currentTime = startTrim;
-        waveSurfer.seekTo(startTrim / audioDuration);
+        let newTime = startTrim;
+
+        segments.forEach((segment) => {
+          if (startTrim >= segment.start && startTrim < segment.end) {
+            newTime = segment.end;
+          }
+        });
+
+        videoRef.current.currentTime = newTime;
+        waveSurfer.seekTo(newTime / audioDuration);
         videoRef.current.play();
         waveSurfer.play();
       }
@@ -159,8 +327,17 @@ export default function TrimTools({
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.ontimeupdate = () => {
-        if (videoRef.current && videoRef.current.currentTime >= endTrim) {
-          videoRef.current.pause();
+        const currentTime = videoRef.current!.currentTime;
+        let shouldStop = true;
+
+        segments.forEach((segment) => {
+          if (currentTime >= segment.start && currentTime < segment.end) {
+            shouldStop = false;
+          }
+        });
+
+        if (shouldStop) {
+          videoRef.current!.pause();
           setIsPlaying(false);
         }
       };
@@ -168,31 +345,96 @@ export default function TrimTools({
 
     if (waveSurfer) {
       waveSurfer.on("audioprocess", () => {
-        if (waveSurfer.getCurrentTime() >= endTrim) {
+        const currentTime = waveSurfer.getCurrentTime();
+        let shouldStop = true;
+
+        segments.forEach((segment) => {
+          if (currentTime >= segment.start && currentTime < segment.end) {
+            shouldStop = false;
+          }
+        });
+
+        if (shouldStop) {
           waveSurfer.pause();
           setIsPlaying(false);
         }
       });
     }
-  }, [startTrim, endTrim, videoRef, waveSurfer, audioDuration]);
+  }, [segments, videoRef, waveSurfer, audioDuration]);
+
+  // Handle clicking on the timeline to position the split bar
+  const handleTimelineClick = (e: React.MouseEvent) => {
+    if (!timelineRef.current || !isSplitBarVisible) return;
+
+    const rect = timelineRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const duration = getActiveDuration();
+    const splitTime = (x / rect.width) * duration;
+
+    setSplitBarPosition(splitTime);
+  };
+
+  // Function to handle segment removal
+// Function to handle segment removal
+const handleRemoveSegment = (id: string) => {
+  console.log("Removing segment:", id); // Debugging
+  setSegments((prevSegments) => {
+    const updatedSegments = prevSegments.filter((segment) => segment.id !== id);
+    console.log("Updated segments:", updatedSegments); // Debugging
+    return updatedSegments;
+  });
+};
 
   return (
     <>
       {/* Video Thumbnails */}
       {trimMode !== "audio" && (
-        <div className="relative w-full mt-4" ref={timelineRef}>
-          <div className="flex w-full h-20 overflow-hidden rounded-lg shadow-lg">
-            {thumbnails.map((thumbnail, index) => (
-              <div
-                key={index}
-                className="flex-shrink-0 h-20 bg-cover bg-center"
-                style={{
-                  width: `${100 / thumbnails.length}%`,
-                  backgroundImage: `url(${thumbnail})`,
-                }}
-              ></div>
-            ))}
-          </div>
+        <div
+          className="relative w-full mt-4"
+          ref={timelineRef}
+          onClick={handleTimelineClick}
+        >
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={segments}
+              strategy={horizontalListSortingStrategy}
+            >
+              <div className="flex w-full h-20 overflow-x-auto rounded-lg shadow-lg">
+                {segments.map((segment) => (
+                  <SortableSegment
+                    key={segment.id}
+                    id={segment.id}
+                    start={segment.start}
+                    end={segment.end}
+                    thumbnail={
+                      thumbnails[
+                        Math.floor(
+                          (segment.start / videoDuration) * thumbnails.length
+                        )
+                      ]
+                    }
+                    videoDuration={videoDuration}
+                    onRemove={handleRemoveSegment} // Pass the onRemove function
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+
+          {/* Split Bar */}
+          {isSplitBarVisible && splitBarPosition !== null && (
+            <div
+              className="absolute top-0 h-full w-1 bg-red-500 cursor-pointer"
+              style={{
+                left: `${(splitBarPosition / getActiveDuration()) * 100}%`,
+              }}
+            ></div>
+          )}
+
           <div
             className="absolute top-0 h-full bg-blue-500 opacity-50 cursor-ew-resize"
             style={{
@@ -220,7 +462,7 @@ export default function TrimTools({
             className="w-full h-16 relative rounded-lg shadow-lg"
           ></div>
           <div
-            className="absolute top-0 h-full bg-blue-500 opacity-50 cursor-ew-resize"
+            className="absolute top-0 h-[100px] bg-blue-500 opacity-50 cursor-ew-resize"
             style={{
               left: `${(startTrim / getActiveDuration()) * 100}%`,
               width: `${((endTrim - startTrim) / getActiveDuration()) * 100}%`,
@@ -235,6 +477,30 @@ export default function TrimTools({
             }}
             onMouseDown={(e) => handleMouseDown(e, "end")}
           ></div>
+        </div>
+      )}
+
+      {/* Split Bar Activation Button */}
+      <div className="mt-10 flex justify-center">
+        <button
+          onClick={() => setIsSplitBarVisible(!isSplitBarVisible)}
+          className="p-2 bg-blue-500 text-white rounded-full"
+        >
+          {isSplitBarVisible ? "Hide Split Bar" : "Show Split Bar"}
+        </button>
+      </div>
+
+      {isSplitBarVisible && (
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={handleSplit}
+            className="p-2 bg-green-500 text-white rounded-full"
+          >
+            Split at{" "}
+            {splitBarPosition !== null
+              ? formatTime(splitBarPosition)
+              : "Selected Position"}
+          </button>
         </div>
       )}
 
