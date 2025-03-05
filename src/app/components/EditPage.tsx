@@ -28,7 +28,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
   const [videoDuration, setVideoDuration] = useState(0);
   const [audioDuration, setAudioDuration] = useState(0);
   const [isDragging, setIsDragging] = useState<"start" | "end" | null>(null);
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState<{
     x: number;
     y: number;
@@ -76,7 +76,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
   };
 
   const handleAddText = () => {
-    setIsOpen(true)
+    setIsOpen(true);
   };
 
   const handleAddComponent = (
@@ -187,170 +187,183 @@ export default function EditPage({ videoUrl }: EditPageProps) {
   }, [audios]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 font-[family-name:var(--font-geist-sans)]">
+    <div className="min-h-screen  bg-gradient-to-br from-purple-50 to-blue-50 font-[family-name:var(--font-geist-sans)]">
       <Header />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-8">
+      <main className=" sm:px-6 lg:px-2 py-2 h-[100%]">
+        <div className="flex gap-2 h-auto">
           {/* Left Sidebar for Icons */}
-          <div className="col-span-1">
-            <div className="bg-white rounded-lg shadow-lg p-4">
-              <div className="space-y-4">
-                <button
-                  onClick={() =>
-                    setActiveSidebar(activeSidebar === "video" ? null : "video")
-                  }
-                  className="w-full flex items-center justify-center p-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all transform hover:scale-105"
-                >
-                  <VideoCameraIcon className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() =>
-                    setActiveSidebar(activeSidebar === "audio" ? null : "audio")
-                  }
-                  className="w-full flex items-center justify-center p-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 transition-all transform hover:scale-105"
-                >
-                  <MusicalNoteIcon className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() =>
-                    setActiveSidebar(activeSidebar === "text" ? null : "text")
-                  }
-                  className="w-full flex items-center justify-center p-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all transform hover:scale-105"
-                >
-                  <DocumentTextIcon className="w-5 h-5" />
-                </button>
-                <button
-                  onClick={() => setShowTrimTools(!showTrimTools)}
-                  className="w-full flex items-center justify-center p-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:from-red-600 hover:to-red-700 transition-all transform hover:scale-105"
-                >
-                  <ScissorsIcon className="w-5 h-5" />
-                </button>
+          <div className="flex flex-1 h-auto ">
+            {/* Sidebar with buttons */}
+            <div className="w-16 ml-0 h-auto">
+              <div className="bg-white rounded-lg  p-2 h-full flex flex-col ">
+                <div className="space-y-2">
+                  <button
+                    onClick={() =>
+                      setActiveSidebar(
+                        activeSidebar === "video" ? null : "video"
+                      )
+                    }
+                    className="flex items-center justify-center p-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  >
+                    <VideoCameraIcon className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() =>
+                      setActiveSidebar(
+                        activeSidebar === "audio" ? null : "audio"
+                      )
+                    }
+                    className="flex items-center justify-center p-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                  >
+                    <MusicalNoteIcon className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() =>
+                      setActiveSidebar(activeSidebar === "text" ? null : "text")
+                    }
+                    className="flex items-center justify-center p-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+                  >
+                    <DocumentTextIcon className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() => setShowTrimTools(!showTrimTools)}
+                    className="flex items-center justify-center p-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:from-red-600 hover:to-red-700 transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                  >
+                    <ScissorsIcon className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
             </div>
+
+            {/* Vertical Line Separator */}
+            {activeSidebar && (
+              <div className="border-l border-gray-300 h-full"></div>
+            )}
+
+            {/* Active Sidebar Content */}
+            {activeSidebar && (
+              <div className="w-[300px] h-full">
+                <div className="bg-white rounded-lg  p-6 h-full overflow-y-auto">
+                  {activeSidebar === "video" && (
+                    <>
+                      <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center space-x-2">
+                        <VideoCameraIcon className="w-6 h-6 text-blue-600" />
+                        <span>Video</span>
+                      </h2>
+                      <div className="space-y-4">
+                        <input
+                          type="file"
+                          className="hidden"
+                          id="video-upload"
+                          accept="video/*"
+                          onChange={handleVideoUpload}
+                        />
+                        <label
+                          htmlFor="video-upload"
+                          className="w-full flex items-center justify-center space-x-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 py-3 rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all transform hover:scale-105 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                        >
+                          <span>Add Video</span>
+                        </label>
+                        {videos.map((video, index) => (
+                          <div
+                            key={index}
+                            className="bg-gray-100 p-4 rounded-lg relative"
+                          >
+                            <video
+                              src={video}
+                              controls
+                              className="w-full rounded-lg"
+                            />
+                            <button
+                              onClick={() => handleAddComponent("video", video)}
+                              className="absolute bottom-2 right-2 bg-blue-600 text-white p-1 rounded-full hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                            >
+                              <PlusIcon className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {activeSidebar === "audio" && (
+                    <>
+                      <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center space-x-2">
+                        <MusicalNoteIcon className="w-6 h-6 text-green-600" />
+                        <span>Audio</span>
+                      </h2>
+                      <div className="space-y-4">
+                        <input
+                          type="file"
+                          className="hidden"
+                          id="audio-upload"
+                          accept="audio/*"
+                          onChange={handleAudioUpload}
+                        />
+                        <label
+                          htmlFor="audio-upload"
+                          className="w-full flex items-center justify-center space-x-3 bg-gradient-to-r from-green-500 to-green-600 text-white px-4 py-3 rounded-lg hover:from-green-600 hover:to-green-700 transition-all transform hover:scale-105 cursor-pointer focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                        >
+                          <span>Add Audio</span>
+                        </label>
+                        {audios.map((audio, index) => (
+                          <div
+                            key={index}
+                            className="bg-gray-100 p-4 rounded-lg relative"
+                          >
+                            <audio
+                              ref={index === 0 ? audioRef : null}
+                              src={audio}
+                              controls
+                              className="w-full"
+                            />
+                            <button
+                              onClick={() => handleAddComponent("audio", audio)}
+                              className="absolute bottom-2 right-2 bg-green-600 text-white p-1 rounded-full hover:bg-green-700 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                            >
+                              <PlusIcon className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {activeSidebar === "text" && (
+                    <>
+                      <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center space-x-2">
+                        <DocumentTextIcon className="w-6 h-6 text-purple-600" />
+                        <span>Text</span>
+                      </h2>
+                      <div className="space-y-4">
+                        <button
+                          onClick={handleAddText}
+                          className="w-full flex items-center justify-center space-x-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white px-4 py-3 rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+                        >
+                          <span>Add Text</span>
+                        </button>
+                        {texts.map((text, index) => (
+                          <div
+                            key={index}
+                            className="bg-gray-100 p-4 rounded-lg relative"
+                          >
+                            <p className="text-gray-700">{text}</p>
+                            <button
+                              onClick={() => handleAddComponent("text", text)}
+                              className="absolute bottom-2 right-2 bg-purple-600 text-white p-1 rounded-full hover:bg-purple-700 transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+                            >
+                              <PlusIcon className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
-          {activeSidebar && (
-            <div className="col-span-1">
-              <div className="bg-white rounded-lg shadow-lg p-6">
-                {activeSidebar === "video" && (
-                  <>
-                    <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center space-x-2">
-                      <VideoCameraIcon className="w-6 h-6 text-blue-600" />
-                      <span>Video</span>
-                    </h2>
-                    <div className="space-y-4">
-                      <input
-                        type="file"
-                        className="hidden"
-                        id="video-upload"
-                        accept="video/*"
-                        onChange={handleVideoUpload}
-                      />
-                      <label
-                        htmlFor="video-upload"
-                        className="w-full flex items-center space-x-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 py-3 rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all transform hover:scale-105 cursor-pointer"
-                      >
-                        <span>Add Video</span>
-                      </label>
-                      {videos.map((video, index) => (
-                        <div
-                          key={index}
-                          className="bg-gray-100 p-4 rounded-lg relative"
-                        >
-                          <video
-                            src={video}
-                            controls
-                            className="w-full rounded-lg"
-                          />
-                          <button
-                            onClick={() => handleAddComponent("video", video)}
-                            className="absolute bottom-2 right-2 bg-blue-600 text-white p-1 rounded-full hover:bg-blue-700 transition-colors"
-                          >
-                            <PlusIcon className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-                {activeSidebar === "audio" && (
-                  <>
-                    <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center space-x-2">
-                      <MusicalNoteIcon className="w-6 h-6 text-green-600" />
-                      <span>Audio</span>
-                    </h2>
-                    <div className="space-y-4">
-                      <input
-                        type="file"
-                        className="hidden"
-                        id="audio-upload"
-                        accept="audio/*"
-                        onChange={handleAudioUpload}
-                      />
-                      <label
-                        htmlFor="audio-upload"
-                        className="w-full flex items-center space-x-3 bg-gradient-to-r from-green-500 to-green-600 text-white px-4 py-3 rounded-lg hover:from-green-600 hover:to-green-700 transition-all transform hover:scale-105 cursor-pointer"
-                      >
-                        <span>Add Audio</span>
-                      </label>
-                      {audios.map((audio, index) => (
-                        <div
-                          key={index}
-                          className="bg-gray-100 p-4 rounded-lg relative"
-                        >
-                          <audio
-                            ref={index === 0 ? audioRef : null}
-                            src={audio}
-                            controls
-                            className="w-full"
-                          />
-                          <button
-                            onClick={() => handleAddComponent("audio", audio)}
-                            className="absolute bottom-2 right-2 bg-green-600 text-white p-1 rounded-full hover:bg-green-700 transition-colors"
-                          >
-                            <PlusIcon className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-                {activeSidebar === "text" && (
-                  <>
-                    <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center space-x-2">
-                      <DocumentTextIcon className="w-6 h-6 text-purple-600" />
-                      <span>Text</span>
-                    </h2>
-                    <div className="space-y-4">
-                      <button
-                        onClick={handleAddText}
-                        className="w-full flex items-center space-x-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white px-4 py-3 rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all transform hover:scale-105"
-                      >
-                        <span>Add Text</span>
-                        
-                      </button>
-                      {texts.map((text, index) => (
-                        <div
-                          key={index}
-                          className="bg-gray-100 p-4 rounded-lg relative"
-                        >
-                          <p className="text-gray-700">{text}</p>
-                          <button
-                            onClick={() => handleAddComponent("text", text)}
-                            className="absolute bottom-2 right-2 bg-purple-600 text-white p-1 rounded-full hover:bg-purple-700 transition-colors"
-                          >
-                            <PlusIcon className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* Main Content Area */}
-          <div className="col-span-4">
+          <div className="flex-4 w-full">
             <div className="bg-white rounded-lg shadow-lg p-6">
               <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center space-x-2">
                 <ScissorsIcon className="w-6 h-6 text-blue-600" />
@@ -451,12 +464,20 @@ export default function EditPage({ videoUrl }: EditPageProps) {
           </div>
         </div>
       </main>
-      <footer className="bg-white shadow-sm mt-8">
+      <footer className="bg-white shadow-sm mt-2">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 text-center">
           <p className="text-gray-600">© 2025 VideoPro. All rights reserved.</p>
         </div>
       </footer>
-      {isOpen && <TextEditorModal isOpen={isOpen} onClose={()=>{setIsOpen(false)}} onSave={(text) => setTexts([...texts, text])}/>}
+      {isOpen && (
+        <TextEditorModal
+          isOpen={isOpen}
+          onClose={() => {
+            setIsOpen(false);
+          }}
+          onSave={(text) => setTexts([...texts, text])}
+        />
+      )}
     </div>
   );
 }
