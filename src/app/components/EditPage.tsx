@@ -38,6 +38,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
   const [activeSidebar, setActiveSidebar] = useState<
     "video" | "audio" | "text" | null
   >(null);
+  const [zoomLevel, setZoomLevel] = useState(1);
   const [videos, setVideos] = useState<string[]>([]);
   const [audios, setAudios] = useState<string[]>([]);
   const [texts, setTexts] = useState<string[]>([]);
@@ -47,7 +48,106 @@ export default function EditPage({ videoUrl }: EditPageProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [trimMode, setTrimMode] = useState<"both" | "video" | "audio">("video");
+  const videoContainerRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  // Handle mouse wheel event for zooming
+  useEffect(() => {
+    const handleWheel = (event: WheelEvent) => {
+      if (event.ctrlKey) {
+        event.preventDefault(); // Prevent default scrolling behavior
+        const delta = event.deltaY;
+        const zoomFactor = 0.1; // Adjust zoom speed
+
+        setZoomLevel((prevZoom) => {
+          let newZoom = prevZoom - delta * zoomFactor * 0.01;
+          newZoom = Math.max(0.5, Math.min(3, newZoom)); // Clamp zoom level between 0.5x and 3x
+          return newZoom;
+        });
+      }
+    };
+
+    const videoContainer = videoContainerRef.current;
+    if (videoContainer) {
+      videoContainer.addEventListener("wheel", handleWheel, { passive: false });
+    }
+
+    return () => {
+      if (videoContainer) {
+        videoContainer.removeEventListener("wheel", handleWheel);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+
+    const drawVideoFrame = () => {
+      if (
+        videoRef.current &&
+        ctx &&
+        canvas &&
+        !videoRef.current.paused &&
+        !videoRef.current.ended
+      ) {
+        canvas.width = videoRef.current.videoWidth * zoomLevel;
+        canvas.height = videoRef.current.videoHeight * zoomLevel;
+        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+        sharpenImage(canvas, ctx);
+        requestAnimationFrame(drawVideoFrame);
+      }
+    };
+
+    if (videoRef.current) {
+      videoRef.current.onplay = () => {
+        drawVideoFrame();
+      };
+    }
+
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.onplay = null;
+      }
+    };
+  }, [zoomLevel]);
+
+  const sharpenImage = (
+    canvas: HTMLCanvasElement,
+    ctx: CanvasRenderingContext2D
+  ) => {
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    const width = imageData.width;
+    const height = imageData.height;
+    const kernel = [-1, -1, -1, -1, 9, -1, -1, -1, -1];
+    const kernelSum = kernel.reduce((a, b) => a + b, 0);
+
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        let r = 0,
+          g = 0,
+          b = 0;
+        for (let ky = -1; ky <= 1; ky++) {
+          for (let kx = -1; kx <= 1; kx++) {
+            const pixelIndex = (x + kx + (y + ky) * width) * 4;
+            r += data[pixelIndex] * kernel[kx + 1 + (ky + 1) * 3];
+            g += data[pixelIndex + 1] * kernel[kx + 1 + (ky + 1) * 3];
+            b += data[pixelIndex + 2] * kernel[kx + 1 + (ky + 1) * 3];
+          }
+        }
+        const index = (x + y * width) * 4;
+        data[index] = Math.min(Math.max(r / kernelSum, 0), 255);
+        data[index + 1] = Math.min(Math.max(g / kernelSum, 0), 255);
+        data[index + 2] = Math.min(Math.max(b / kernelSum, 0), 255);
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+  };
+
+  // Sharpen image using convolution
+
+  // Handle video upload
   const handleVideoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -62,6 +162,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
     }
   };
 
+  // Handle audio upload
   const handleAudioUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -75,10 +176,12 @@ export default function EditPage({ videoUrl }: EditPageProps) {
     }
   };
 
+  // Handle adding text
   const handleAddText = () => {
     setIsOpen(true);
   };
 
+  // Handle adding components
   const handleAddComponent = (
     type: "video" | "audio" | "text",
     src: string
@@ -96,10 +199,12 @@ export default function EditPage({ videoUrl }: EditPageProps) {
     }
   };
 
+  // Handle removing components
   const handleRemoveComponent = (id: string) => {
     setAddedComponents(addedComponents.filter((comp) => comp.id !== id));
   };
 
+  // Handle trimming
   const handleDone = () => {
     if (videoRef.current) {
       setIsTrimmed(true);
@@ -122,6 +227,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
     }
   };
 
+  // Handle downloading trimmed video
   const handleDownload = async () => {
     if (videoRef.current && isTrimmed) {
       const startTime = (startTrim / 100) * videoDuration;
@@ -166,36 +272,16 @@ export default function EditPage({ videoUrl }: EditPageProps) {
     }
   };
 
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.onloadedmetadata = () => {
-        if (videoRef.current) {
-          setVideoDuration(videoRef.current.duration || 0);
-        }
-      };
-    }
-  }, [video]);
-
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.onloadedmetadata = () => {
-        if (audioRef.current) {
-          setAudioDuration(audioRef.current.duration || 0);
-        }
-      };
-    }
-  }, [audios]);
-
   return (
-    <div className="min-h-screen  bg-gradient-to-br from-purple-50 to-blue-50 font-[family-name:var(--font-geist-sans)]">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 font-[family-name:var(--font-geist-sans)]">
       <Header />
-      <main className=" sm:px-6 lg:px-2 py-2 h-[100%]">
+      <main className="sm:px-6 lg:px-2 py-2 h-[100%]">
         <div className="flex gap-2 h-auto">
           {/* Left Sidebar for Icons */}
-          <div className="flex flex-1 h-auto ">
+          <div className="flex flex-1 h-auto">
             {/* Sidebar with buttons */}
             <div className="w-16 ml-0 h-auto">
-              <div className="bg-white rounded-lg  p-2 h-full flex flex-col ">
+              <div className="bg-white rounded-lg p-2 h-full flex flex-col">
                 <div className="space-y-2">
                   <button
                     onClick={() =>
@@ -243,7 +329,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
             {/* Active Sidebar Content */}
             {activeSidebar && (
               <div className="w-[300px] h-full">
-                <div className="bg-white rounded-lg  p-6 h-full overflow-y-auto">
+                <div className="bg-white rounded-lg p-6 h-full overflow-y-auto">
                   {activeSidebar === "video" && (
                     <>
                       <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center space-x-2">
@@ -270,9 +356,14 @@ export default function EditPage({ videoUrl }: EditPageProps) {
                             className="bg-gray-100 p-4 rounded-lg relative"
                           >
                             <video
+                              ref={videoRef}
                               src={video}
                               controls
-                              className="w-full rounded-lg"
+                              className="w-full h-auto"
+                              style={{
+                                transform: `scale(${zoomLevel})`,
+                                transformOrigin: "center center",
+                              }}
                             />
                             <button
                               onClick={() => handleAddComponent("video", video)}
@@ -369,17 +460,35 @@ export default function EditPage({ videoUrl }: EditPageProps) {
                 <ScissorsIcon className="w-6 h-6 text-blue-600" />
                 <span>Edit Your Video</span>
               </h2>
-              <div className="bg-gray-100 rounded-lg p-6 flex flex-col items-center justify-center min-h-[300px]">
+              <div
+                ref={videoContainerRef}
+                className="bg-gray-100 mt-10 rounded-lg p-6 flex flex-col items-center justify-center min-h-[300px] overflow-hidden"
+              >
                 {video ? (
                   <>
+                    <canvas
+                      ref={canvasRef}
+                      id="videoCanvas"
+                      className="w-full h-full rounded-lg mb-[70px]"
+                      style={{
+                        transform: `scale(${zoomLevel})`,
+                        transformOrigin: "center center",
+                      }}
+                    />
                     <video
                       ref={videoRef}
                       src={video}
                       controls
                       crossOrigin="anonymous"
-                      className="w-full h-full rounded-lg"
+                      className="w-full rounded-lg"
+                      muted
+                      autoPlay
                       onLoadedMetadata={() => {
                         if (videoRef.current) {
+                          console.log(
+                            "Video Metadata Loaded:",
+                            videoRef.current.duration
+                          );
                           setVideoDuration(videoRef.current.duration || 0);
                         }
                       }}
