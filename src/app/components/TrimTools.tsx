@@ -231,7 +231,7 @@ function SortableAudioSegment({
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    cursor: "grab", // Add cursor style for grabbing
+    cursor: "grab",
   };
 
   const [isDraggingLeft, setIsDraggingLeft] = useState(false);
@@ -240,12 +240,45 @@ function SortableAudioSegment({
   const waveformRef = useRef<HTMLDivElement | null>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
 
+  // Convert base64 to Blob
+  const base64ToBlob = (base64: string, mimeType: string): Blob => {
+    const byteCharacters = atob(base64.split(",")[1]);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    return new Blob([byteArray], { type: mimeType });
+  };
+
+  // Initialize WaveSurfer
   useEffect(() => {
     if (waveformRef.current && audioSrc) {
+      console.log("Initializing WaveSurfer with audio source:", audioSrc);
+
+      let url: string;
+
+      // Check if audioSrc is a base64 string
+      if (audioSrc.startsWith("data:audio")) {
+        // Convert base64 to Blob
+        const blob = base64ToBlob(audioSrc, "audio/mpeg");
+        url = URL.createObjectURL(blob);
+      } else {
+        // Use the audioSrc directly as a URL
+        url = audioSrc;
+      }
+
+      // Destroy existing WaveSurfer instance if it exists
+      if (wavesurferRef.current) {
+        wavesurferRef.current.destroy();
+        console.log("Destroyed existing WaveSurfer instance");
+      }
+
+      // Create a new WaveSurfer instance
       wavesurferRef.current = WaveSurfer.create({
-        container: waveformRef.current,
-        waveColor: "rgba(0, 123, 255, 0.5)", // Blue color for the waveform
-        progressColor: "rgba(0, 123, 255, 0.8)", // Brighter blue for progress
+        container: waveformRef.current, // Use the ref here
+        waveColor: "rgba(0, 123, 255, 0.5)",
+        progressColor: "rgba(0, 123, 255, 0.8)",
         cursorColor: "rgba(255, 255, 255, 0.2)",
         barWidth: 2,
         barHeight: 1,
@@ -253,21 +286,30 @@ function SortableAudioSegment({
         height: 80,
       });
 
-      // Load the audio from the provided source
-      wavesurferRef.current.load(audioSrc);
+      console.log("WaveSurfer initialized");
+
+      // Load the audio source
+      wavesurferRef.current.load(url);
 
       wavesurferRef.current.on("ready", () => {
         console.log("WaveSurfer is ready");
       });
+
+      wavesurferRef.current.on("error", (error) => {
+        console.error("WaveSurfer error:", error);
+      });
     }
 
+    // Cleanup on unmount
     return () => {
       if (wavesurferRef.current) {
         wavesurferRef.current.destroy();
+        console.log("WaveSurfer destroyed");
       }
     };
   }, [audioSrc]);
 
+  // Handle trimming logic
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isDraggingLeft || isDraggingRight) {
@@ -278,9 +320,9 @@ function SortableAudioSegment({
           ((e.clientX - rect.left) / rect.width) * (end - start) + start;
 
         if (isDraggingLeft) {
-          onTrim(id, Math.min(newTime, end - 0.1), end); // Ensure start < end
+          onTrim(id, Math.min(newTime, end - 0.1), end);
         } else if (isDraggingRight) {
-          onTrim(id, start, Math.max(newTime, start + 0.1)); // Ensure end > start
+          onTrim(id, start, Math.max(newTime, start + 0.1));
         }
       }
     };
@@ -314,7 +356,7 @@ function SortableAudioSegment({
         borderRadius: "8px",
         overflow: "hidden",
         transition: "transform 0.2s ease-in-out",
-        backgroundColor: "#ffffff", // White background
+        backgroundColor: "#ffffff",
       }}
       className="flex-shrink-0 h-20 relative"
     >
@@ -349,7 +391,7 @@ function SortableAudioSegment({
       </div>
 
       {/* Waveform */}
-      <div ref={waveformRef} className="w-full h-full" />
+      <div id="waveform" className="w-full h-20"></div>
 
       {/* Left Border for Trimming */}
       <div
@@ -849,7 +891,7 @@ export default function TrimTools({
 
     setAudioSplitBarPosition(splitTime);
   };
-
+  console.log("audio reference:", audioRef);
   return (
     <>
       {/* Video Thumbnails */}

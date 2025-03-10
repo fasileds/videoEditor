@@ -15,7 +15,7 @@ import Header from "../components/Header";
 import { formatTime } from "../utils/formatTime";
 import TrimTools from "./TrimTools";
 import TextEditorModal from "./TextEditorModal";
-
+import { ClipLoader } from "react-spinners";
 interface EditPageProps {
   videoUrl: string | null;
 }
@@ -50,7 +50,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
   const [trimMode, setTrimMode] = useState<"both" | "video" | "audio">("video");
   const videoContainerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-
+  const [isLoading, setIsLoading] = useState(false);
   // Handle mouse wheel event for zooming
   useEffect(() => {
     const handleWheel = (event: WheelEvent) => {
@@ -229,7 +229,9 @@ export default function EditPage({ videoUrl }: EditPageProps) {
 
   // Handle downloading trimmed video
   const handleDownload = async () => {
-    if (videoRef.current && isTrimmed) {
+    if (videoRef.current) {
+      setIsLoading(true); // Show spinner
+
       const startTime = (startTrim / 100) * videoDuration;
       const endTime = (endTrim / 100) * videoDuration;
 
@@ -241,7 +243,20 @@ export default function EditPage({ videoUrl }: EditPageProps) {
         video.onloadeddata = resolve;
       });
 
-      const stream = (video as any).captureStream();
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+
+      if (!ctx) {
+        console.error("Canvas context is not available.");
+        setIsLoading(false); // Hide spinner on error
+        return;
+      }
+
+      // Set canvas dimensions based on the video's original dimensions
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      const stream = canvas.captureStream();
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: "video/webm; codecs=vp9",
       });
@@ -254,9 +269,40 @@ export default function EditPage({ videoUrl }: EditPageProps) {
 
       mediaRecorder.start();
 
-      setTimeout(() => {
-        mediaRecorder.stop();
-      }, (endTime - startTime) * 1000);
+      const drawFrame = () => {
+        if (video.currentTime >= endTime) {
+          mediaRecorder.stop();
+          return;
+        }
+
+        // Clear the canvas before drawing the new frame
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Calculate the scaled dimensions based on the zoom level
+        const scaledWidth = video.videoWidth * zoomLevel;
+        const scaledHeight = video.videoHeight * zoomLevel;
+
+        // Calculate the offset to center the zoomed video
+        const offsetX = (canvas.width - scaledWidth) / 2;
+        const offsetY = (canvas.height - scaledHeight) / 2;
+
+        // Draw the video frame with the zoom level
+        ctx.drawImage(
+          video,
+          offsetX, // X offset
+          offsetY, // Y offset
+          scaledWidth, // Scaled width
+          scaledHeight // Scaled height
+        );
+
+        // Apply sharpening effect (optional)
+        sharpenImage(canvas, ctx);
+
+        requestAnimationFrame(drawFrame);
+      };
+
+      video.play();
+      drawFrame();
 
       mediaRecorder.onstop = () => {
         const blob = new Blob(chunks, { type: "video/webm" });
@@ -266,9 +312,9 @@ export default function EditPage({ videoUrl }: EditPageProps) {
         a.download = "trimmed-video.webm";
         a.click();
         URL.revokeObjectURL(url);
-      };
 
-      video.play();
+        setIsLoading(false); // Hide spinner after download is complete
+      };
     }
   };
 
@@ -524,8 +570,13 @@ export default function EditPage({ videoUrl }: EditPageProps) {
                         <button
                           onClick={handleDownload}
                           className="mt-4 ml-4 bg-gradient-to-r from-green-500 to-green-600 text-white px-6 py-2 rounded-lg hover:from-green-600 hover:to-green-700 transition-all transform hover:scale-105"
+                          disabled={isLoading} // Disable button while loading
                         >
-                          Download Trimmed Video
+                          {isLoading ? (
+                            <ClipLoader color="#ffffff" size={20} /> // Show spinner while loading
+                          ) : (
+                            "Download Trimmed Vide"
+                          )}
                         </button>
                       </>
                     )}
