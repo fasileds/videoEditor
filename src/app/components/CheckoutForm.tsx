@@ -59,7 +59,11 @@ const CheckoutForm: React.FC<CheckoutFormProps> = ({ budget, onClose }) => {
         } else if (result.paymentIntent?.status === "succeeded") {
           Swal.fire({
             title: "Payment Successful!",
+<<<<<<< HEAD
             text: "Your payment has been processed successfully.",
+=======
+            text: "Your payment has been processed successfully. you are now subscribe for one monthe",
+>>>>>>> f1fe9d9c769f804b2deada20c6880cc0cc88529b
             icon: "success",
             confirmButtonText: "OK",
           });

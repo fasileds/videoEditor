@@ -1,6 +1,15 @@
 "use client";
 
 import { useState, useRef, useEffect, CSSProperties } from "react";
+<<<<<<< HEAD
+=======
+import {
+  DndContext,
+  useDraggable,
+  type DragEndEvent,
+  type UniqueIdentifier,
+} from "@dnd-kit/core"; // Import DndContext and useDraggable
+>>>>>>> f1fe9d9c769f804b2deada20c6880cc0cc88529b
 import {
   ScissorsIcon,
   DocumentTextIcon,
@@ -16,8 +25,12 @@ import { formatTime } from "../utils/formatTime";
 import TrimTools from "./TrimTools";
 import TextEditorModal from "./TextEditorModal";
 import { ClipLoader } from "react-spinners";
+<<<<<<< HEAD
 import { DndContext, DragEndEvent, useDraggable } from "@dnd-kit/core";
 import { Rnd } from "react-rnd";
+=======
+
+>>>>>>> f1fe9d9c769f804b2deada20c6880cc0cc88529b
 interface EditPageProps {
   videoUrl: string | null;
 }
@@ -33,6 +46,10 @@ interface TextOverlay {
   id: string;
 }
 
+<<<<<<< HEAD
+=======
+// Draggable Text Overlay Component
+>>>>>>> f1fe9d9c769f804b2deada20c6880cc0cc88529b
 function DraggableTextOverlay({
   id,
   text,
@@ -50,7 +67,11 @@ function DraggableTextOverlay({
     transform: transform
       ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
       : undefined,
+<<<<<<< HEAD
     position: "absolute",
+=======
+    position: "absolute", // Explicitly set to "absolute"
+>>>>>>> f1fe9d9c769f804b2deada20c6880cc0cc88529b
     left: x,
     top: y,
     color,
@@ -91,12 +112,13 @@ export default function EditPage({ videoUrl }: EditPageProps) {
   const [addedComponents, setAddedComponents] = useState<
     { type: "video" | "audio" | "text"; src: string; id: string }[]
   >([]);
+  const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [trimMode, setTrimMode] = useState<"both" | "video" | "audio">("video");
   const videoContainerRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+<<<<<<< HEAD
   const [zoomBox, setZoomBox] = useState({
     x: 100,
     y: 100,
@@ -158,6 +180,12 @@ export default function EditPage({ videoUrl }: EditPageProps) {
     };
   }, []);
 
+=======
+  const [isCanvasLoading, setIsCanvasLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Handle adding text overlay
+>>>>>>> f1fe9d9c769f804b2deada20c6880cc0cc88529b
   const handleAddTextOverlay = (
     text: string,
     style: CSSProperties,
@@ -171,13 +199,34 @@ export default function EditPage({ videoUrl }: EditPageProps) {
       color: style.color || "black",
       fontSize: parseInt(style.fontSize?.toString() || "16", 10),
       startTime: videoRef.current?.currentTime || 0,
+<<<<<<< HEAD
       endTime: (videoRef.current?.currentTime || 0) + 5,
+=======
+      endTime: (videoRef.current?.currentTime || 0) + 5, // Default 5 seconds duration
+>>>>>>> f1fe9d9c769f804b2deada20c6880cc0cc88529b
       id: Math.random().toString(36).substring(7),
     };
     setTextOverlays([...textOverlays, newTextOverlay]);
     setIsOpen(false);
   };
 
+<<<<<<< HEAD
+=======
+  // Handle updating text overlay position
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, delta } = event;
+    const id = active.id as string;
+
+    setTextOverlays((prev) =>
+      prev.map((overlay) =>
+        overlay.id === id
+          ? { ...overlay, x: overlay.x + delta.x, y: overlay.y + delta.y }
+          : overlay
+      )
+    );
+  };
+
+>>>>>>> f1fe9d9c769f804b2deada20c6880cc0cc88529b
   // Handle video upload
   const handleVideoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -257,6 +306,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
     }
   };
 
+<<<<<<< HEAD
   // Sharpen image using convolution
   const sharpenImage = (
     canvas: HTMLCanvasElement,
@@ -511,6 +561,103 @@ export default function EditPage({ videoUrl }: EditPageProps) {
         if (el !== videoRef.current) el.remove();
       });
     }
+=======
+  // Handle downloading trimmed video
+  const handleDownload = async () => {
+    console.log(videoRef.current?.src); // Log the video source
+    if (!videoRef.current || !videoRef.current.src) {
+      console.error("Video reference or source is not available.");
+      alert("Please ensure a video is loaded before downloading.");
+      return;
+    }
+
+    setIsLoading(true); // Show spinner
+
+    const startTime = (startTrim / 100) * videoDuration;
+    const endTime = (endTrim / 100) * videoDuration;
+
+    // Create a new video element for processing
+    const video = document.createElement("video");
+    video.src = videoRef.current.src; // Set the source from videoRef.current
+    video.currentTime = startTime;
+    video.muted = true; // Mute the video to avoid permission issues
+
+    // Wait for the video to load its metadata
+    await new Promise((resolve) => {
+      video.onloadeddata = resolve;
+    });
+
+    // Now the video is fully loaded, and we can access its properties
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    if (!ctx) {
+      console.error("Canvas context is not available.");
+      setIsLoading(false); // Hide spinner on error
+      return;
+    }
+
+    // Set canvas dimensions based on the video's original dimensions
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const stream = canvas.captureStream();
+    const mediaRecorder = new MediaRecorder(stream, {
+      mimeType: "video/webm; codecs=vp9", // Use a supported MIME type
+    });
+
+    const chunks: Blob[] = [];
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
+
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(chunks, { type: "video/webm" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "trimmed-video.webm";
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setIsLoading(false); // Hide spinner after download is complete
+    };
+
+    mediaRecorder.start();
+
+    const drawFrame = () => {
+      if (video.currentTime >= endTime) {
+        mediaRecorder.stop();
+        return;
+      }
+
+      // Clear the canvas before drawing the new frame
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw the video frame
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Draw text overlays
+      textOverlays.forEach((overlay) => {
+        if (
+          video.currentTime >= overlay.startTime &&
+          video.currentTime <= overlay.endTime
+        ) {
+          ctx.fillStyle = overlay.color;
+          ctx.font = `${overlay.fontSize}px Arial`;
+          ctx.fillText(overlay.text, overlay.x, overlay.y);
+        }
+      });
+
+      requestAnimationFrame(drawFrame);
+    };
+
+    video.play();
+    drawFrame();
+>>>>>>> f1fe9d9c769f804b2deada20c6880cc0cc88529b
   };
   useEffect(() => {
     return () => {
@@ -632,7 +779,21 @@ export default function EditPage({ videoUrl }: EditPageProps) {
                               ref={videoRef}
                               src={video}
                               controls
+<<<<<<< HEAD
                               className="w-full h-auto"
+=======
+                              crossOrigin="anonymous"
+                              className="w-full rounded-lg"
+                              muted
+                              autoPlay
+                              onLoadedMetadata={() => {
+                                if (videoRef.current) {
+                                  setVideoDuration(
+                                    videoRef.current.duration || 0
+                                  );
+                                }
+                              }}
+>>>>>>> f1fe9d9c769f804b2deada20c6880cc0cc88529b
                             />
                             <button
                               onClick={() => handleAddComponent("video", video)}
@@ -700,14 +861,16 @@ export default function EditPage({ videoUrl }: EditPageProps) {
                         >
                           <span>Add Text</span>
                         </button>
-                        {texts.map((text, index) => (
+                        {textOverlays.map((text, index) => (
                           <div
                             key={index}
                             className="bg-gray-100 p-4 rounded-lg relative"
                           >
-                            <p className="text-gray-700">{text}</p>
+                            <p className="text-gray-700">{text.text}</p>
                             <button
-                              onClick={() => handleAddComponent("text", text)}
+                              onClick={() =>
+                                handleAddComponent("text", text.text)
+                              }
                               className="absolute bottom-2 right-2 bg-purple-600 text-white p-1 rounded-full hover:bg-purple-700 transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
                             >
                               <PlusIcon className="w-4 h-4" />
@@ -731,10 +894,11 @@ export default function EditPage({ videoUrl }: EditPageProps) {
               </h2>
               <div
                 ref={videoContainerRef}
-                className="bg-gray-100 mt-10 rounded-lg p-6 flex flex-col items-center justify-center min-h-[300px] overflow-hidden"
+                className="bg-gray-100 mt-10 rounded-lg p-6 flex flex-col items-center justify-center min-h-[300px] overflow-hidden relative"
               >
                 {video ? (
                   <>
+<<<<<<< HEAD
                     <div className="relative w-full h-full">
                       <div className="relative w-full max-w-[960px] mx-auto">
                         {/* Base full video (unchanged) */}
@@ -841,6 +1005,59 @@ export default function EditPage({ videoUrl }: EditPageProps) {
                         ))}
                       </DndContext>
                     </div>
+=======
+                    {isCanvasLoading && (
+                      <div className="flex items-center justify-center">
+                        <ClipLoader color="#000000" size={30} />
+                        <span className="ml-2">Loading video...</span>
+                      </div>
+                    )}
+                    {error && (
+                      <div className="text-red-500 text-center">
+                        <p>{error}</p>
+                      </div>
+                    )}
+                    <video
+                      ref={videoRef}
+                      src={video}
+                      controls
+                      crossOrigin="anonymous"
+                      className="w-full rounded-lg"
+                      muted
+                      autoPlay
+                      onLoadedMetadata={() => {
+                        if (videoRef.current) {
+                          console.log(
+                            "Video Metadata Loaded:",
+                            videoRef.current.duration
+                          );
+                          setVideoDuration(videoRef.current.duration || 0);
+                        }
+                      }}
+                      onError={(e) => {
+                        console.error("Error loading video:", e);
+                        setError(
+                          "Error loading video. Please check the file and try again."
+                        );
+                      }}
+                    />
+                    {/* Text Overlays */}
+                    <DndContext onDragEnd={handleDragEnd}>
+                      {textOverlays.map((overlay) => (
+                        <DraggableTextOverlay
+                          key={overlay.id}
+                          {...overlay}
+                          onDragEnd={(id, x, y) => {
+                            setTextOverlays((prev) =>
+                              prev.map((o) =>
+                                o.id === id ? { ...o, x, y } : o
+                              )
+                            );
+                          }}
+                        />
+                      ))}
+                    </DndContext>
+>>>>>>> f1fe9d9c769f804b2deada20c6880cc0cc88529b
                     {showTrimTools && (
                       <TrimTools
                         videoRef={videoRef}
@@ -872,12 +1089,20 @@ export default function EditPage({ videoUrl }: EditPageProps) {
                         <button
                           onClick={handleDownload}
                           className="mt-4 ml-4 bg-gradient-to-r from-green-500 to-green-600 text-white px-6 py-2 rounded-lg hover:from-green-600 hover:to-green-700 transition-all transform hover:scale-105"
+<<<<<<< HEAD
                           disabled={isLoading}
+=======
+                          disabled={!video || isLoading} // Disable button if no video is loaded or while loading
+>>>>>>> f1fe9d9c769f804b2deada20c6880cc0cc88529b
                         >
                           {isLoading ? (
                             <ClipLoader color="#ffffff" size={20} />
                           ) : (
+<<<<<<< HEAD
                             "Download Edited Video"
+=======
+                            "Download Trimmed Video"
+>>>>>>> f1fe9d9c769f804b2deada20c6880cc0cc88529b
                           )}
                         </button>
                       </>
