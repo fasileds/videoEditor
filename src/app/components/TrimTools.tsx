@@ -240,71 +240,76 @@ function SortableAudioSegment({
   const waveformRef = useRef<HTMLDivElement | null>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
 
-  // Convert base64 to Blob
-  const base64ToBlob = (base64: string, mimeType: string): Blob => {
-    const byteCharacters = atob(base64.split(",")[1]);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    return new Blob([byteArray], { type: mimeType });
-  };
-
-  // Initialize WaveSurfer
   useEffect(() => {
-    if (waveformRef.current && audioSrc) {
-      console.log("Initializing WaveSurfer with audio source:", audioSrc);
+    if (!audioSrc || typeof audioSrc !== "string") {
+      console.error("Invalid audio source:", audioSrc);
+      return;
+    }
 
-      let url: string;
-
-      // Check if audioSrc is a base64 string
-      if (audioSrc.startsWith("data:audio")) {
-        // Convert base64 to Blob
-        const blob = base64ToBlob(audioSrc, "audio/mpeg");
-        url = URL.createObjectURL(blob);
-      } else {
-        // Use the audioSrc directly as a URL
-        url = audioSrc;
-      }
-
+    if (waveformRef.current) {
       // Destroy existing WaveSurfer instance if it exists
       if (wavesurferRef.current) {
         wavesurferRef.current.destroy();
-        console.log("Destroyed existing WaveSurfer instance");
       }
 
       // Create a new WaveSurfer instance
       wavesurferRef.current = WaveSurfer.create({
-        container: waveformRef.current, // Use the ref here
+        container: waveformRef.current,
         waveColor: "rgba(0, 123, 255, 0.5)",
         progressColor: "rgba(0, 123, 255, 0.8)",
         cursorColor: "rgba(255, 255, 255, 0.2)",
-        barWidth: 2,
+        barWidth: 1, // Reduce barWidth
         barHeight: 1,
-        barGap: 2,
+        barGap: undefined, // Use undefined or omit this property
         height: 80,
+        backend: "MediaElement", // Use MediaElement backend
+        normalize: true, // Normalize the waveform
       });
-
-      console.log("WaveSurfer initialized");
 
       // Load the audio source
-      wavesurferRef.current.load(url);
+      try {
+        wavesurferRef.current.load(audioSrc);
 
-      wavesurferRef.current.on("ready", () => {
-        console.log("WaveSurfer is ready");
-      });
+        wavesurferRef.current.on("ready", () => {
+          console.log("WaveSurfer is ready");
+          const decodedData = wavesurferRef.current?.getDecodedData();
+          console.log("Decoded Audio Data:", decodedData);
 
-      wavesurferRef.current.on("error", (error) => {
-        console.error("WaveSurfer error:", error);
-      });
+          if (!decodedData || decodedData.length === 0) {
+            console.error("Invalid or empty audio data");
+            return;
+          }
+
+          // Log the first few samples of the audio data
+          const channelData = decodedData.getChannelData(0);
+          console.log(
+            "First 10 samples of audio data:",
+            channelData.slice(0, 10)
+          );
+
+          if (decodedData.sampleRate < 44100) {
+            console.warn(
+              "Low sample rate detected. Consider resampling the audio."
+            );
+          }
+        });
+
+        wavesurferRef.current.on("error", (error) => {
+          console.error("WaveSurfer error:", error);
+          waveformRef.current!.innerHTML =
+            "<p>Failed to load audio. Please check the file.</p>";
+        });
+      } catch (error) {
+        console.error("Error loading audio:", error);
+        waveformRef.current!.innerHTML =
+          "<p>Failed to render waveform. Please check the audio file.</p>";
+      }
     }
 
     // Cleanup on unmount
     return () => {
       if (wavesurferRef.current) {
         wavesurferRef.current.destroy();
-        console.log("WaveSurfer destroyed");
       }
     };
   }, [audioSrc]);
@@ -391,7 +396,7 @@ function SortableAudioSegment({
       </div>
 
       {/* Waveform */}
-      <div id="waveform" className="w-full h-20"></div>
+      <div ref={waveformRef} className="w-full h-20"></div>
 
       {/* Left Border for Trimming */}
       <div
@@ -449,47 +454,49 @@ export default function TrimTools({
   const videoTimelineRef = useRef<HTMLDivElement | null>(null);
   const audioTimelineRef = useRef<HTMLDivElement | null>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
-
+  const [redoStack, setRedoStack] = useState<
+    { video: Segment[]; audio: Segment[] }[]
+  >([]);
   // Ensure FFmpeg is loaded
   useEffect(() => {
     loadFFmpeg();
   }, []);
 
   // Initialize WaveSurfer for audio waveform
-  useEffect(() => {
-    if (audioRef.current) {
-      // Ensure the #waveform container exists
-      const waveformContainer = document.getElementById("waveform");
-      if (!waveformContainer) {
-        console.error("Waveform container not found");
-        return;
-      }
+  // useEffect(() => {
+  //   if (audioRef.current) {
+  //     // Ensure the #waveform container exists
+  //     const waveformContainer = document.getElementById("waveform");
+  //     if (!waveformContainer) {
+  //       console.error("Waveform container not found");
+  //       return;
+  //     }
 
-      // Initialize WaveSurfer
-      wavesurferRef.current = WaveSurfer.create({
-        container: "#waveform",
-        waveColor: "rgba(0, 123, 255, 0.5)", // Blue color for the waveform
-        progressColor: "rgba(0, 123, 255, 0.8)", // Brighter blue for progress
-        cursorColor: "rgba(255, 255, 255, 0.2)",
-        barWidth: 2,
-        barHeight: 1,
-        barGap: 2,
-        height: 100,
-      });
+  //     // Initialize WaveSurfer
+  //     wavesurferRef.current = WaveSurfer.create({
+  //       container: "#waveform",
+  //       waveColor: "rgba(0, 123, 255, 0.5)", // Blue color for the waveform
+  //       progressColor: "rgba(0, 123, 255, 0.8)", // Brighter blue for progress
+  //       cursorColor: "rgba(255, 255, 255, 0.2)",
+  //       barWidth: 2,
+  //       barHeight: 1,
+  //       barGap: 2,
+  //       height: 100,
+  //     });
 
-      wavesurferRef.current.load(audioRef.current.src);
+  //     wavesurferRef.current.load(audioRef.current.src);
 
-      wavesurferRef.current.on("ready", () => {
-        console.log("WaveSurfer is ready");
-      });
-    }
+  //     wavesurferRef.current.on("ready", () => {
+  //       console.log("WaveSurfer is ready");
+  //     });
+  //   }
 
-    return () => {
-      if (wavesurferRef.current) {
-        wavesurferRef.current.destroy();
-      }
-    };
-  }, [audioRef]);
+  //   return () => {
+  //     if (wavesurferRef.current) {
+  //       wavesurferRef.current.destroy();
+  //     }
+  //   };
+  // }, [audioRef]);
 
   // Generate Thumbnails for each video segment
   useEffect(() => {
@@ -528,19 +535,40 @@ export default function TrimTools({
   const handleUndo = () => {
     if (history.length > 0) {
       const previousState = history[history.length - 1];
+      // Before undoing, push current state to redo stack
+      setRedoStack((prevRedoStack) => [
+        ...prevRedoStack,
+        { video: videoSegments, audio: audioSegments },
+      ]);
       setVideoSegments(previousState.video);
       setAudioSegments(previousState.audio);
-      setHistory((prevHistory) => prevHistory.slice(0, -1)); // Remove the last state from history
+      setHistory((prevHistory) => prevHistory.slice(0, -1));
     }
+  };
+  const clearRedoStack = () => {
+    setRedoStack([]);
   };
 
   // Handle confirm action
   const handleConfirm = () => {
     alert("Confirm action executed");
   };
-
+  const handleRedo = () => {
+    if (redoStack.length > 0) {
+      const nextState = redoStack[redoStack.length - 1];
+      setVideoSegments(nextState.video);
+      setAudioSegments(nextState.audio);
+      setRedoStack((prevRedoStack) => prevRedoStack.slice(0, -1));
+      // Add current state to history so undo can bring us back
+      setHistory((prevHistory) => [
+        ...prevHistory,
+        { video: videoSegments, audio: audioSegments },
+      ]);
+    }
+  };
   // Handle splitting the video
   const handleVideoSplit = async () => {
+    clearRedoStack();
     if (videoSplitBarPosition === null) return;
 
     setIsProcessing(true);
@@ -597,7 +625,7 @@ export default function TrimTools({
         );
 
         // Check if the output file exists
-        const fileList = ffmpeg.FS("readdir", "/");
+        const fileList = ffmpeg.FS("readdir" as any, "/");
         if (!Array.isArray(fileList) || !fileList.includes("output.mp4")) {
           throw new Error("Output file not found in FFmpeg file system.");
         }
@@ -1085,8 +1113,9 @@ export default function TrimTools({
 
         {/* Confirm Button */}
         <button
-          onClick={handleConfirm}
-          className="flex items-center gap-2 p-2  text-blue-500 rounded-full  hover:bg-blue-600 hover:text-white transition-all duration-200"
+          onClick={handleRedo}
+          className="flex items-center gap-2 p-2 text-purple-600 rounded-full hover:bg-purple-600 hover:text-white transition-all duration-200"
+          disabled={redoStack.length === 0}
         >
           <svg
             className="w-5 h-5"
@@ -1097,9 +1126,9 @@ export default function TrimTools({
             strokeLinecap="round"
             strokeLinejoin="round"
           >
-            <path d="M5 12l5 5L19 7" />
+            <path d="M21 12h-6M21 12l-6-6M21 12l-6 6" />
           </svg>
-          <span className="hidden sm:inline">Confirm</span>
+          <span className="hidden sm:inline">Redo</span>
         </button>
       </div>
 
