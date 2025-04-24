@@ -75,6 +75,7 @@ function SortableVideoSegment({
   duration,
   onRemove,
   onTrim,
+  isDraggable, // New prop to control drag state
 }: {
   id: string;
   start: number;
@@ -83,238 +84,21 @@ function SortableVideoSegment({
   duration: number;
   onRemove: (id: string) => void;
   onTrim: (id: string, newStart: number, newEnd: number) => void;
+  isDraggable: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } =
-    useSortable({ id });
+    useSortable({ id, disabled: !isDraggable }); // Disable sorting when not draggable
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    cursor: "pointer",
+    cursor: isDraggable ? "grab" : "pointer",
   };
 
   const [isDraggingLeft, setIsDraggingLeft] = useState(false);
   const [isDraggingRight, setIsDraggingRight] = useState(false);
   const segmentRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isDraggingLeft || isDraggingRight) {
-        if (!segmentRef.current) return;
-
-        const rect = segmentRef.current.getBoundingClientRect();
-        const newTime =
-          ((e.clientX - rect.left) / rect.width) * (end - start) + start;
-
-        if (isDraggingLeft) {
-          onTrim(id, Math.min(newTime, end - 0.1), end); // Ensure start < end
-        } else if (isDraggingRight) {
-          onTrim(id, start, Math.max(newTime, start + 0.1)); // Ensure end > start
-        }
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsDraggingLeft(false);
-      setIsDraggingRight(false);
-    };
-
-    if (isDraggingLeft || isDraggingRight) {
-      window.addEventListener("mousemove", handleMouseMove);
-      window.addEventListener("mouseup", handleMouseUp);
-    }
-
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isDraggingLeft, isDraggingRight, start, end, id, onTrim]);
-
-  return (
-    <div
-      ref={(node) => {
-        setNodeRef(node);
-        segmentRef.current = node;
-      }}
-      style={{
-        ...style,
-        width: `${((end - start) / duration) * 100}%`,
-        marginRight: "10px",
-        backgroundImage: `url(${thumbnail})`,
-        borderRadius: "8px",
-        overflow: "hidden",
-        transition: "transform 0.2s ease-in-out",
-      }}
-      className="flex-shrink-0 h-20 bg-cover bg-center relative"
-    >
-      {/* Dragging Handle */}
-      <div
-        {...attributes}
-        {...listeners}
-        className="absolute inset-0"
-        style={{ cursor: "grab" }}
-      />
-
-      {/* Remove Button */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          onRemove(id);
-        }}
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-        }}
-        className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 transition-all"
-        style={{ zIndex: 1000, pointerEvents: "auto" }}
-      >
-        ×
-      </button>
-
-      {/* Timestamp Display */}
-      <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-60 text-white text-center text-xs p-1 rounded-b-lg">
-        {formatTime(start)} - {formatTime(end)}
-      </div>
-
-      {/* Left Border for Trimming */}
-      <div
-        className="absolute left-0 top-0 bottom-0 w-2 bg-blue-500 cursor-ew-resize hover:bg-blue-600 transition-all"
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          setIsDraggingLeft(true);
-        }}
-        style={{
-          borderTopLeftRadius: "8px",
-          borderBottomLeftRadius: "8px",
-        }}
-      ></div>
-
-      {/* Right Border for Trimming */}
-      <div
-        className="absolute right-0 top-0 bottom-0 w-2 bg-blue-500 cursor-ew-resize hover:bg-blue-600 transition-all"
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          setIsDraggingRight(true);
-        }}
-        style={{
-          borderTopRightRadius: "8px",
-          borderBottomRightRadius: "8px",
-        }}
-      ></div>
-    </div>
-  );
-}
-
-// Draggable Segment Component for Audio
-// Draggable Segment Component for Audio
-function SortableAudioSegment({
-  id,
-  start,
-  end,
-  duration,
-  onRemove,
-  onTrim,
-  audioSrc,
-}: {
-  id: string;
-  start: number;
-  end: number;
-  duration: number;
-  onRemove: (id: string) => void;
-  onTrim: (id: string, newStart: number, newEnd: number) => void;
-  audioSrc: string;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition } =
-    useSortable({ id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    cursor: "grab",
-  };
-
-  const [isDraggingLeft, setIsDraggingLeft] = useState(false);
-  const [isDraggingRight, setIsDraggingRight] = useState(false);
-  const segmentRef = useRef<HTMLDivElement | null>(null);
-  const waveformRef = useRef<HTMLDivElement | null>(null);
-  const wavesurferRef = useRef<WaveSurfer | null>(null);
-
-  useEffect(() => {
-    if (!audioSrc || typeof audioSrc !== "string") {
-      console.error("Invalid audio source:", audioSrc);
-      return;
-    }
-
-    if (waveformRef.current) {
-      // Destroy existing WaveSurfer instance if it exists
-      if (wavesurferRef.current) {
-        wavesurferRef.current.destroy();
-      }
-
-      // Create a new WaveSurfer instance
-      wavesurferRef.current = WaveSurfer.create({
-        container: waveformRef.current,
-        waveColor: "rgba(0, 123, 255, 0.5)",
-        progressColor: "rgba(0, 123, 255, 0.8)",
-        cursorColor: "rgba(255, 255, 255, 0.2)",
-        barWidth: 1, // Reduce barWidth
-        barHeight: 1,
-        barGap: undefined, // Use undefined or omit this property
-        height: 80,
-        backend: "MediaElement", // Use MediaElement backend
-        normalize: true, // Normalize the waveform
-      });
-
-      // Load the audio source
-      try {
-        wavesurferRef.current.load(audioSrc);
-
-        wavesurferRef.current.on("ready", () => {
-          console.log("WaveSurfer is ready");
-          const decodedData = wavesurferRef.current?.getDecodedData();
-          console.log("Decoded Audio Data:", decodedData);
-
-          if (!decodedData || decodedData.length === 0) {
-            console.error("Invalid or empty audio data");
-            return;
-          }
-
-          // Log the first few samples of the audio data
-          const channelData = decodedData.getChannelData(0);
-          console.log(
-            "First 10 samples of audio data:",
-            channelData.slice(0, 10)
-          );
-
-          if (decodedData.sampleRate < 44100) {
-            console.warn(
-              "Low sample rate detected. Consider resampling the audio."
-            );
-          }
-        });
-
-        wavesurferRef.current.on("error", (error) => {
-          console.error("WaveSurfer error:", error);
-          waveformRef.current!.innerHTML =
-            "<p>Failed to load audio. Please check the file.</p>";
-        });
-      } catch (error) {
-        console.error("Error loading audio:", error);
-        waveformRef.current!.innerHTML =
-          "<p>Failed to render waveform. Please check the audio file.</p>";
-      }
-    }
-
-    // Cleanup on unmount
-    return () => {
-      if (wavesurferRef.current) {
-        wavesurferRef.current.destroy();
-      }
-    };
-  }, [audioSrc]);
-
-  // Handle trimming logic
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isDraggingLeft || isDraggingRight) {
@@ -358,20 +142,24 @@ function SortableAudioSegment({
         ...style,
         width: `${((end - start) / duration) * 100}%`,
         marginRight: "10px",
+        backgroundImage: `url(${thumbnail})`,
         borderRadius: "8px",
         overflow: "hidden",
         transition: "transform 0.2s ease-in-out",
-        backgroundColor: "#ffffff",
       }}
-      className="flex-shrink-0 h-20 relative"
+      className={`flex-shrink-0 h-20 bg-cover bg-center relative ${
+        isDraggable ? "ring-2 ring-blue-500" : ""
+      }`}
     >
-      {/* Dragging Handle */}
-      <div
-        {...attributes}
-        {...listeners}
-        className="absolute inset-0"
-        style={{ cursor: "grab" }}
-      />
+      {/* Dragging Handle - Only show when draggable */}
+      {isDraggable && (
+        <div
+          {...attributes}
+          {...listeners}
+          className="absolute inset-0"
+          style={{ cursor: "grab" }}
+        />
+      )}
 
       {/* Remove Button */}
       <button
@@ -395,12 +183,11 @@ function SortableAudioSegment({
         {formatTime(start)} - {formatTime(end)}
       </div>
 
-      {/* Waveform */}
-      <div ref={waveformRef} className="w-full h-20"></div>
-
       {/* Left Border for Trimming */}
       <div
-        className="absolute left-0 top-0 bottom-0 w-2 bg-blue-500 cursor-ew-resize hover:bg-blue-600 transition-all"
+        className={`absolute left-0 top-0 bottom-0 w-2 ${
+          isDraggable ? "bg-blue-700" : "bg-blue-500"
+        } cursor-ew-resize hover:bg-blue-600 transition-all`}
         onMouseDown={(e) => {
           e.stopPropagation();
           setIsDraggingLeft(true);
@@ -413,7 +200,9 @@ function SortableAudioSegment({
 
       {/* Right Border for Trimming */}
       <div
-        className="absolute right-0 top-0 bottom-0 w-2 bg-blue-500 cursor-ew-resize hover:bg-blue-600 transition-all"
+        className={`absolute right-0 top-0 bottom-0 w-2 ${
+          isDraggable ? "bg-blue-700" : "bg-blue-500"
+        } cursor-ew-resize hover:bg-blue-600 transition-all`}
         onMouseDown={(e) => {
           e.stopPropagation();
           setIsDraggingRight(true);
@@ -423,6 +212,224 @@ function SortableAudioSegment({
           borderBottomRightRadius: "8px",
         }}
       ></div>
+    </div>
+  );
+}
+
+// Draggable Segment Component for Audio
+// Draggable Segment Component for Audio
+function SortableAudioSegment({
+  id,
+  start,
+  end,
+  duration,
+  onRemove,
+  onTrim,
+  audioSrc,
+  isDraggable = false,
+}: {
+  id: string;
+  start: number;
+  end: number;
+  duration: number;
+  onRemove: (id: string) => void;
+  onTrim: (id: string, newStart: number, newEnd: number) => void;
+  audioSrc: string;
+  isDraggable?: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition } =
+    useSortable({ id, disabled: !isDraggable });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    cursor: isDraggable ? "grab" : "default",
+  };
+
+  const [isDraggingLeft, setIsDraggingLeft] = useState(false);
+  const [isDraggingRight, setIsDraggingRight] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+
+  const segmentRef = useRef<HTMLDivElement | null>(null);
+  const waveformRef = useRef<HTMLDivElement | null>(null);
+  const wavesurferRef = useRef<WaveSurfer | null>(null);
+
+  // Initialize WaveSurfer
+  useEffect(() => {
+    if (!waveformRef.current || !audioSrc) return;
+
+    const wavesurfer = WaveSurfer.create({
+      container: waveformRef.current,
+      waveColor: "rgba(0, 123, 255, 0.5)",
+      progressColor: "rgba(0, 123, 255, 0.8)",
+      cursorColor: "rgba(255, 255, 255, 0.2)",
+      barWidth: 1,
+      height: 80,
+      backend: "MediaElement",
+      normalize: true,
+      responsive: true,
+    });
+
+    wavesurferRef.current = wavesurfer;
+
+    const handleReady = () => {
+      setIsLoading(false);
+      setHasError(false);
+
+      // Zoom to the segment's time range
+      wavesurfer.zoom(((end - start) / duration) * 100);
+    };
+
+    const handleError = (error: Error) => {
+      console.error("WaveSurfer error:", error);
+      setIsLoading(false);
+      setHasError(true);
+    };
+
+    wavesurfer.on("ready", handleReady);
+    wavesurfer.on("error", handleError);
+
+    try {
+      wavesurfer.load(audioSrc);
+    } catch (error) {
+      console.error("Error loading audio:", error);
+      setHasError(true);
+      setIsLoading(false);
+    }
+
+    return () => {
+      wavesurfer.un("ready", handleReady);
+      wavesurfer.un("error", handleError);
+      // try {
+      //   wavesurfer.destroy();
+      // } catch (err) {
+      //   console.warn("Error destroying WaveSurfer:", err);
+      // }
+    };
+  }, [audioSrc, start, end, duration]);
+
+  // Handle trimming
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!segmentRef.current) return;
+
+      const rect = segmentRef.current.getBoundingClientRect();
+      const newTime =
+        ((e.clientX - rect.left) / rect.width) * (end - start) + start;
+
+      if (isDraggingLeft) {
+        onTrim(id, Math.min(newTime, end - 0.1), end);
+      } else if (isDraggingRight) {
+        onTrim(id, start, Math.max(newTime, start + 0.1));
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingLeft(false);
+      setIsDraggingRight(false);
+    };
+
+    if (isDraggingLeft || isDraggingRight) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDraggingLeft, isDraggingRight, start, end, id, onTrim]);
+
+  return (
+    <div
+      ref={(node) => {
+        setNodeRef(node);
+        segmentRef.current = node;
+      }}
+      style={{
+        ...style,
+        width: `${((end - start) / duration) * 100}%`,
+        marginRight: "10px",
+        borderRadius: "8px",
+        overflow: "hidden",
+        transition: "transform 0.2s ease-in-out",
+        backgroundColor: "#ffffff",
+      }}
+      className={`flex-shrink-0 h-20 relative ${
+        isDraggable ? "ring-2 ring-blue-500" : ""
+      }`}
+    >
+      {/* Dragging Handle */}
+      {isDraggable && (
+        <div
+          {...attributes}
+          {...listeners}
+          className="absolute inset-0"
+          style={{ cursor: "grab" }}
+        />
+      )}
+
+      {/* Remove Button */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          onRemove(id);
+        }}
+        className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full shadow-md hover:bg-red-600 transition-all z-50"
+      >
+        ×
+      </button>
+
+      {/* Timestamp Display */}
+      <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-60 text-white text-center text-xs p-1 rounded-b-lg z-10">
+        {formatTime(start)} - {formatTime(end)}
+      </div>
+
+      {/* Waveform Container */}
+      <div ref={waveformRef} className="w-full h-20 relative">
+        {isLoading && !hasError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+          </div>
+        )}
+        {hasError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-100 text-red-500 text-sm p-2">
+            Failed to load audio waveform
+          </div>
+        )}
+      </div>
+
+      {/* Left Border for Trimming */}
+      <div
+        className={`absolute left-0 top-0 bottom-0 w-2 ${
+          isDraggingLeft ? "bg-blue-700" : "bg-blue-500"
+        } cursor-ew-resize hover:bg-blue-600 transition-all z-20`}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          setIsDraggingLeft(true);
+        }}
+        style={{
+          borderTopLeftRadius: "8px",
+          borderBottomLeftRadius: "8px",
+        }}
+      />
+
+      {/* Right Border for Trimming */}
+      <div
+        className={`absolute right-0 top-0 bottom-0 w-2 ${
+          isDraggingRight ? "bg-blue-700" : "bg-blue-500"
+        } cursor-ew-resize hover:bg-blue-600 transition-all z-20`}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          setIsDraggingRight(true);
+        }}
+        style={{
+          borderTopRightRadius: "8px",
+          borderBottomRightRadius: "8px",
+        }}
+      />
     </div>
   );
 }
@@ -457,46 +464,50 @@ export default function TrimTools({
   const [redoStack, setRedoStack] = useState<
     { video: Segment[]; audio: Segment[] }[]
   >([]);
+  const [draggableSegments, setDraggableSegments] = useState<{
+    video: boolean;
+    audio: boolean;
+  }>({ video: false, audio: false });
   // Ensure FFmpeg is loaded
   useEffect(() => {
     loadFFmpeg();
   }, []);
 
   // Initialize WaveSurfer for audio waveform
-  // useEffect(() => {
-  //   if (audioRef.current) {
-  //     // Ensure the #waveform container exists
-  //     const waveformContainer = document.getElementById("waveform");
-  //     if (!waveformContainer) {
-  //       console.error("Waveform container not found");
-  //       return;
-  //     }
+  useEffect(() => {
+    if (audioRef.current) {
+      // Ensure the #waveform container exists
+      const waveformContainer = document.getElementById("waveform");
+      if (!waveformContainer) {
+        console.error("Waveform container not found");
+        return;
+      }
 
-  //     // Initialize WaveSurfer
-  //     wavesurferRef.current = WaveSurfer.create({
-  //       container: "#waveform",
-  //       waveColor: "rgba(0, 123, 255, 0.5)", // Blue color for the waveform
-  //       progressColor: "rgba(0, 123, 255, 0.8)", // Brighter blue for progress
-  //       cursorColor: "rgba(255, 255, 255, 0.2)",
-  //       barWidth: 2,
-  //       barHeight: 1,
-  //       barGap: 2,
-  //       height: 100,
-  //     });
+      // Initialize WaveSurfer
+      wavesurferRef.current = WaveSurfer.create({
+        container: "#waveform",
+        waveColor: "rgba(0, 123, 255, 0.5)", // Blue color for the waveform
+        progressColor: "rgba(0, 123, 255, 0.8)", // Brighter blue for progress
+        cursorColor: "rgba(255, 255, 255, 0.2)",
+        barWidth: 2,
+        barHeight: 1,
+        barGap: 2,
+        height: 100,
+      });
 
-  //     wavesurferRef.current.load(audioRef.current.src);
+      wavesurferRef.current.load(audioRef.current.src);
 
-  //     wavesurferRef.current.on("ready", () => {
-  //       console.log("WaveSurfer is ready");
-  //     });
-  //   }
+      wavesurferRef.current.on("ready", () => {
+        console.log("WaveSurfer is ready");
+      });
+    }
 
-  //   return () => {
-  //     if (wavesurferRef.current) {
-  //       wavesurferRef.current.destroy();
-  //     }
-  //   };
-  // }, [audioRef]);
+    return () => {
+      if (wavesurferRef.current) {
+        wavesurferRef.current.destroy();
+      }
+    };
+  }, [audioRef]);
 
   // Generate Thumbnails for each video segment
   useEffect(() => {
@@ -567,10 +578,8 @@ export default function TrimTools({
     }
   };
   // Handle splitting the video
-  const handleVideoSplit = async () => {
+  const handleMediaSplit = async () => {
     clearRedoStack();
-    if (videoSplitBarPosition === null) return;
-
     setIsProcessing(true);
 
     // Save current state to history
@@ -579,167 +588,206 @@ export default function TrimTools({
       { video: videoSegments, audio: audioSegments },
     ]);
 
-    // Ensure FFmpeg is loaded
-    await loadFFmpeg();
-
-    // Split logic
-    const newSegmentId = uuidv4();
-    const newSegment: Segment = {
-      id: newSegmentId,
-      start: videoSplitBarPosition,
-      end: videoDuration,
-    };
-
-    const updatedSegments = videoSegments.map((segment) => {
-      if (segment.end > videoSplitBarPosition) {
-        return { ...segment, end: videoSplitBarPosition };
-      }
-      return segment;
-    });
-
-    setVideoSegments([...updatedSegments, newSegment]);
-    setVideoSplitBarPosition(null);
-
     try {
-      // Use FFmpeg to split the video
-      if (videoRef.current && videoRef.current.src) {
-        const videoUrl = videoRef.current.src;
-        const videoBlob = await fetch(videoUrl).then((res) => res.blob());
+      // VIDEO SPLIT
+      if (videoSplitBarPosition !== null && videoRef.current?.src) {
+        const newSegmentId = uuidv4();
+        const newSegment: Segment = {
+          id: newSegmentId,
+          start: videoSplitBarPosition,
+          end: videoDuration,
+        };
+
+        const updatedVideoSegments = videoSegments.map((segment) => {
+          if (segment.end > videoSplitBarPosition) {
+            return { ...segment, end: videoSplitBarPosition };
+          }
+          return segment;
+        });
+
+        setVideoSegments([...updatedVideoSegments, newSegment]);
+        setVideoSplitBarPosition(null);
+
+        await loadFFmpeg();
+
+        const videoBlob = await fetch(videoRef.current.src).then((res) =>
+          res.blob()
+        );
         const videoFile = new File([videoBlob], "input.mp4", {
           type: "video/mp4",
         });
-
         ffmpeg.FS("writeFile", "input.mp4", await fetchFile(videoFile));
 
-        // Run FFmpeg command
         await ffmpeg.run(
           "-i",
           "input.mp4",
           "-ss",
-          `${videoSplitBarPosition}`,
+          `${newSegment.start}`,
           "-to",
-          `${videoDuration}`,
+          `${newSegment.end}`,
           "-c",
           "copy",
           "output.mp4"
         );
 
-        // Check if the output file exists
-        const fileList = ffmpeg.FS("readdir" as any, "/");
-        if (!Array.isArray(fileList) || !fileList.includes("output.mp4")) {
-          throw new Error("Output file not found in FFmpeg file system.");
-        }
-
-        // Read the output file
         const outputData = ffmpeg.FS("readFile", "output.mp4");
         const outputBuffer =
           outputData.buffer instanceof ArrayBuffer
             ? outputData.buffer
             : outputData.buffer.slice(0);
-        const outputBlob = new Blob(
-          [
-            outputBuffer instanceof ArrayBuffer
-              ? outputBuffer
-              : new Uint8Array(outputBuffer),
-          ],
-          { type: "video/mp4" }
-        );
-        const outputUrl = URL.createObjectURL(outputBlob);
+        const outputBlob = new Blob([outputBuffer], { type: "video/mp4" });
+        videoRef.current.src = URL.createObjectURL(outputBlob);
+      }
 
-        // Update the video source with the new split video
-        videoRef.current.src = outputUrl;
+      // AUDIO SPLIT
+      if (audioSplitBarPosition !== null && wavesurferRef.current) {
+        const newSegmentId = uuidv4();
+        const newSegment: Segment = {
+          id: newSegmentId,
+          start: audioSplitBarPosition,
+          end: audioDuration,
+        };
+
+        const updatedAudioSegments = audioSegments.map((segment) => {
+          if (segment.end > audioSplitBarPosition) {
+            return { ...segment, end: audioSplitBarPosition };
+          }
+          return segment;
+        });
+
+        setAudioSegments([...updatedAudioSegments, newSegment]);
+        setAudioSplitBarPosition(null);
+
+        const audioBuffer = wavesurferRef.current.getDecodedData();
+        if (audioBuffer) {
+          const splitIndex = Math.floor(
+            (audioSplitBarPosition / audioDuration) * audioBuffer.length
+          );
+
+          const left = audioBuffer.getChannelData(0).slice(0, splitIndex);
+          const right = audioBuffer.getChannelData(1).slice(0, splitIndex);
+
+          const newBuffer = new AudioBuffer({
+            length: left.length,
+            numberOfChannels: 2,
+            sampleRate: audioBuffer.sampleRate,
+          });
+
+          newBuffer.copyToChannel(left, 0);
+          newBuffer.copyToChannel(right, 1);
+
+          const offlineCtx = new OfflineAudioContext({
+            length: newBuffer.length,
+            sampleRate: newBuffer.sampleRate,
+          });
+
+          const src = offlineCtx.createBufferSource();
+          src.buffer = newBuffer;
+          src.connect(offlineCtx.destination);
+          src.start();
+
+          const renderedBuffer = await offlineCtx.startRendering();
+          const audioBlob = new Blob(
+            [renderedBuffer.getChannelData(0).buffer],
+            {
+              type: "audio/wav",
+            }
+          );
+
+          wavesurferRef.current.loadBlob(audioBlob);
+        }
       }
     } catch (error) {
-      console.error("Error during video split operation:", error);
-      alert("An error occurred while splitting the video. Please try again.");
+      console.error("Media split error:", error);
+      alert("An error occurred during media splitting. Please try again.");
     } finally {
       setIsProcessing(false);
     }
   };
 
   // Handle splitting the audio
-  const handleAudioSplit = async () => {
-    if (audioSplitBarPosition === null) return;
+  // const handleAudioSplit = async () => {
+  //   if (audioSplitBarPosition === null) return;
 
-    setIsProcessing(true);
+  //   setIsProcessing(true);
 
-    // Save current state to history
-    setHistory((prevHistory) => [
-      ...prevHistory,
-      { video: videoSegments, audio: audioSegments },
-    ]);
+  //   // Save current state to history
+  //   setHistory((prevHistory) => [
+  //     ...prevHistory,
+  //     { video: videoSegments, audio: audioSegments },
+  //   ]);
 
-    // Split logic
-    const newSegmentId = uuidv4();
-    const newSegment: Segment = {
-      id: newSegmentId,
-      start: audioSplitBarPosition,
-      end: audioDuration,
-    };
+  //   // Split logic
+  //   const newSegmentId = uuidv4();
+  //   const newSegment: Segment = {
+  //     id: newSegmentId,
+  //     start: audioSplitBarPosition,
+  //     end: audioDuration,
+  //   };
 
-    const updatedSegments = audioSegments.map((segment) => {
-      if (segment.end > audioSplitBarPosition) {
-        return { ...segment, end: audioSplitBarPosition };
-      }
-      return segment;
-    });
+  //   const updatedSegments = audioSegments.map((segment) => {
+  //     if (segment.end > audioSplitBarPosition) {
+  //       return { ...segment, end: audioSplitBarPosition };
+  //     }
+  //     return segment;
+  //   });
 
-    setAudioSegments([...updatedSegments, newSegment]);
-    setAudioSplitBarPosition(null);
+  //   setAudioSegments([...updatedSegments, newSegment]);
+  //   setAudioSplitBarPosition(null);
 
-    try {
-      // Split audio using WaveSurfer
-      if (wavesurferRef.current) {
-        const audioBuffer = wavesurferRef.current.getDecodedData();
-        if (audioBuffer) {
-          const splitTime = audioSplitBarPosition;
-          const leftChannel = audioBuffer.getChannelData(0);
-          const rightChannel = audioBuffer.getChannelData(1);
+  //   try {
+  //     // Split audio using WaveSurfer
+  //     if (wavesurferRef.current) {
+  //       const audioBuffer = wavesurferRef.current.getDecodedData();
+  //       if (audioBuffer) {
+  //         const splitTime = audioSplitBarPosition;
+  //         const leftChannel = audioBuffer.getChannelData(0);
+  //         const rightChannel = audioBuffer.getChannelData(1);
 
-          const splitIndex = Math.floor(
-            (splitTime / audioDuration) * leftChannel.length
-          );
+  //         const splitIndex = Math.floor(
+  //           (splitTime / audioDuration) * leftChannel.length
+  //         );
 
-          const leftPart = leftChannel.slice(0, splitIndex);
-          const rightPart = rightChannel.slice(0, splitIndex);
+  //         const leftPart = leftChannel.slice(0, splitIndex);
+  //         const rightPart = rightChannel.slice(0, splitIndex);
 
-          const newAudioBuffer = new AudioBuffer({
-            length: leftPart.length,
-            numberOfChannels: 2,
-            sampleRate: audioBuffer.sampleRate,
-          });
+  //         const newAudioBuffer = new AudioBuffer({
+  //           length: leftPart.length,
+  //           numberOfChannels: 2,
+  //           sampleRate: audioBuffer.sampleRate,
+  //         });
 
-          newAudioBuffer.copyToChannel(leftPart, 0);
-          newAudioBuffer.copyToChannel(rightPart, 1);
+  //         newAudioBuffer.copyToChannel(leftPart, 0);
+  //         newAudioBuffer.copyToChannel(rightPart, 1);
 
-          const offlineContext = new OfflineAudioContext({
-            length: newAudioBuffer.length,
-            sampleRate: newAudioBuffer.sampleRate,
-          });
+  //         const offlineContext = new OfflineAudioContext({
+  //           length: newAudioBuffer.length,
+  //           sampleRate: newAudioBuffer.sampleRate,
+  //         });
 
-          const bufferSource = offlineContext.createBufferSource();
-          bufferSource.buffer = newAudioBuffer;
-          bufferSource.connect(offlineContext.destination);
-          bufferSource.start();
+  //         const bufferSource = offlineContext.createBufferSource();
+  //         bufferSource.buffer = newAudioBuffer;
+  //         bufferSource.connect(offlineContext.destination);
+  //         bufferSource.start();
 
-          const renderedBuffer = await offlineContext.startRendering();
-          const audioArrayBuffer = renderedBuffer.getChannelData(0).buffer;
-          const audioBlob = new Blob(
-            [audioArrayBuffer.slice(0) as ArrayBuffer],
-            {
-              type: "audio/wav",
-            }
-          );
-          wavesurferRef.current.loadBlob(audioBlob);
-        }
-      }
-    } catch (error) {
-      console.error("Error during audio split operation:", error);
-      alert("An error occurred while splitting the audio. Please try again.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+  //         const renderedBuffer = await offlineContext.startRendering();
+  //         const audioArrayBuffer = renderedBuffer.getChannelData(0).buffer;
+  //         const audioBlob = new Blob(
+  //           [audioArrayBuffer.slice(0) as ArrayBuffer],
+  //           {
+  //             type: "audio/wav",
+  //           }
+  //         );
+  //         wavesurferRef.current.loadBlob(audioBlob);
+  //       }
+  //     }
+  //   } catch (error) {
+  //     console.error("Error during audio split operation:", error);
+  //     alert("An error occurred while splitting the audio. Please try again.");
+  //   } finally {
+  //     setIsProcessing(false);
+  //   }
+  // };
 
   // Handle trimming a video segment
   const handleTrimVideoSegment = async (
@@ -907,6 +955,18 @@ export default function TrimTools({
     const splitTime = (x / rect.width) * videoDuration;
 
     setVideoSplitBarPosition(splitTime);
+    setDraggableSegments({ video: false, audio: false }); // Disable dragging on single click
+  };
+
+  const handleVideoTimelineDoubleClick = (e: React.MouseEvent) => {
+    if (!videoTimelineRef.current) return;
+
+    const rect = videoTimelineRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const splitTime = (x / rect.width) * videoDuration;
+
+    setVideoSplitBarPosition(splitTime);
+    setDraggableSegments({ video: true, audio: false }); // Enable video dragging on double click
   };
 
   // Handle clicking on the audio timeline to position the split bar
@@ -927,18 +987,32 @@ export default function TrimTools({
         className="relative w-full mt-6"
         ref={videoTimelineRef}
         onClick={handleVideoTimelineClick}
+        onDoubleClick={handleVideoTimelineDoubleClick}
       >
         <DndContext
           sensors={useSensors(
-            useSensor(PointerSensor),
+            useSensor(PointerSensor, {
+              activationConstraint: {
+                distance: draggableSegments.video ? 0 : 9999, // Only activate when draggable
+              },
+            }),
             useSensor(KeyboardSensor, {
               coordinateGetter: sortableKeyboardCoordinates,
             })
           )}
           collisionDetection={closestCenter}
+          onDragStart={() => {
+            // Optional: Add any effects when dragging starts
+          }}
           onDragEnd={(event) => {
             const { active, over } = event;
             if (over && active.id !== over.id) {
+              // Save to history before making changes
+              setHistory((prevHistory) => [
+                ...prevHistory,
+                { video: videoSegments, audio: audioSegments },
+              ]);
+
               setVideoSegments((segments) => {
                 const oldIndex = segments.findIndex(
                   (segment) => segment.id === active.id
@@ -949,23 +1023,33 @@ export default function TrimTools({
                 return arrayMove(segments, oldIndex, newIndex);
               });
             }
+            // Reset dragging state after operation
+            setDraggableSegments({ video: false, audio: false });
+          }}
+          onDragCancel={() => {
+            setDraggableSegments({ video: false, audio: false });
           }}
         >
           <SortableContext
             items={videoSegments}
             strategy={horizontalListSortingStrategy}
           >
-            <div className="flex w-full h-28 overflow-x-auto rounded-xl shadow-lg bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 p-3 border border-gray-700 backdrop-blur-md">
+            <div
+              className="flex w-full h-28 overflow-x-auto rounded-xl shadow-lg bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 p-3 border border-gray-700 backdrop-blur-md"
+              onClick={handleVideoTimelineClick}
+              onDoubleClick={handleVideoTimelineDoubleClick}
+            >
               {videoSegments.map((segment) => (
                 <SortableVideoSegment
                   key={segment.id}
                   id={segment.id}
                   start={segment.start}
                   end={segment.end}
-                  thumbnail={thumbnails[segment.id] || ""} // Use the thumbnail for this segment
+                  thumbnail={thumbnails[segment.id] || ""}
                   duration={videoDuration}
                   onRemove={handleRemoveVideoSegment}
                   onTrim={handleTrimVideoSegment}
+                  isDraggable={draggableSegments.video} // Pass draggable state
                 />
               ))}
             </div>
@@ -1032,6 +1116,7 @@ export default function TrimTools({
             </div>
           </SortableContext>
         </DndContext>
+        <div id="waveform" className="w-full h-20 mt-2"></div>
 
         {/* Audio Split Bar */}
         {audioSplitBarPosition !== null && (
@@ -1048,7 +1133,7 @@ export default function TrimTools({
       <div className="fixed bottom-5 left-1/2 transform z-50 -translate-x-1/2 flex items-center gap-6 bg-opacity-90 backdrop-blur-md p-0.5 rounded-full  border ">
         {/* Video Split Button */}
         <button
-          onClick={handleVideoSplit}
+          onClick={handleMediaSplit}
           className="flex items-center gap-2 p-2  text-green-600 rounded-full hover:bg-green-600 hover:text-white   transition-all duration-200"
         >
           <svg
@@ -1065,12 +1150,12 @@ export default function TrimTools({
           <span className="hidden sm:inline">
             {videoSplitBarPosition !== null
               ? formatTime(videoSplitBarPosition)
-              : "Split Video"}
+              : "Split"}
           </span>
         </button>
 
         {/* Audio Split Button */}
-        <button
+        {/* <button
           onClick={handleAudioSplit}
           className="flex items-center gap-2 p-2  text-green-600 rounded-full hover:bg-green-600 hover:text-white   transition-all duration-200"
         >
@@ -1086,11 +1171,11 @@ export default function TrimTools({
             <path d="M12 5v14M5 12h14" />
           </svg>
           <span className="hidden sm:inline">
-            {audioSplitBarPosition !== null
-              ? formatTime(audioSplitBarPosition)
-              : "Split Audio"}
+            {videoSplitBarPosition !== null
+              ? formatTime(videoSplitBarPosition)
+              : "Split"}
           </span>
-        </button>
+        </button> */}
 
         {/* Undo Button */}
         <button
