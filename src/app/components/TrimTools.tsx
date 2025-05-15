@@ -444,6 +444,7 @@ export default function TrimTools({
   const [videoSegments, setVideoSegments] = useState<Segment[]>([
     { id: uuidv4(), start: 0, end: videoDuration },
   ]);
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null); // Preview Video Ref
   const [audioSegments, setAudioSegments] = useState<Segment[]>([
     { id: uuidv4(), start: 0, end: audioDuration },
   ]);
@@ -541,6 +542,48 @@ export default function TrimTools({
 
     generateThumbnails();
   }, [videoRef, videoSegments]);
+// Reprocess the video and update both the original and preview video source
+const updateVideoSource = async () => {
+  // Ensure the videoRef and segments exist
+  if (!videoRef.current || !previewVideoRef.current) return;
+
+  // Combine the remaining segments and trim the video
+  const newStart = videoSegments[0]?.start ?? 0;
+  const newEnd = videoSegments[videoSegments.length - 1]?.end ?? videoDuration;
+
+  // Use FFmpeg to trim the video based on the new start and end points
+  await loadFFmpeg();
+  const videoUrl = videoRef.current.src;
+  const videoBlob = await fetch(videoUrl).then((res) => res.blob());
+  const videoFile = new File([videoBlob], "input.mp4", { type: "video/mp4" });
+
+  ffmpeg.FS("writeFile", "input.mp4", await fetchFile(videoFile));
+
+  await ffmpeg.run(
+    "-i",
+    "input.mp4",
+    "-ss",
+    `${newStart}`,
+    "-to",
+    `${newEnd}`,
+    "-c",
+    "copy",
+    "output.mp4"
+  );
+
+  const outputData = ffmpeg.FS("readFile", "output.mp4");
+  const outputBuffer =
+    outputData.buffer instanceof ArrayBuffer
+      ? outputData.buffer
+      : outputData.buffer.slice(0);
+  const outputBlob = new Blob([outputBuffer], { type: "video/mp4" });
+
+  const outputUrl = URL.createObjectURL(outputBlob);
+
+  // Update the video source with the trimmed video for both original and preview
+  videoRef.current.src = outputUrl;
+  previewVideoRef.current.src = outputUrl;  // Update preview video
+};
 
   // Handle undo action
   const handleUndo = () => {
@@ -931,7 +974,11 @@ export default function TrimTools({
     setVideoSegments((prevSegments) =>
       prevSegments.filter((segment) => segment.id !== id)
     );
+
+    // Reprocess and update the video source
+    updateVideoSource();
   };
+
 
   // Handle removing an audio segment
   const handleRemoveAudioSegment = (id: string) => {
@@ -1128,6 +1175,22 @@ export default function TrimTools({
           />
         )}
       </div>
+<div className="mt-[-70px] max-w-full">
+  <h2 className="text-center text-2xl font-semibold text-gray-800 mb-4">
+    Preview of Trimmed Video
+  </h2>
+  
+  <div className="flex justify-center items-center bg-gray-900 p-4 rounded-lg shadow-lg">
+    <video
+      ref={previewVideoRef}
+      controls
+      className="w-full max-w-4xl h-auto bg-black rounded-lg shadow-lg"
+      style={{ maxHeight: "400px" }}
+    >
+      Your browser does not support the video tag.
+    </video>
+  </div>
+</div>
 
       {/* Sticky Bottom Action Bar */}
       <div className="fixed bottom-5 left-1/2 transform z-50 -translate-x-1/2 flex items-center gap-6 bg-opacity-90 backdrop-blur-md p-0.5 rounded-full  border ">
