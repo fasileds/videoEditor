@@ -34,7 +34,9 @@ interface TextOverlay {
   startTime: number;
   endTime: number;
   id: string;
+  visible?: boolean; // ✅ new
 }
+
 
 function DraggableTextOverlay({
   id,
@@ -44,6 +46,7 @@ function DraggableTextOverlay({
   color,
   fontSize,
   onDragEnd,
+    visible,
 }: TextOverlay & { onDragEnd: (id: string, x: number, y: number) => void }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id,
@@ -63,10 +66,16 @@ function DraggableTextOverlay({
   };
 
   return (
-    <div ref={setNodeRef} style={style} {...listeners} {...attributes}>
-      {text}
-    </div>
-  );
+  <div
+    ref={setNodeRef}
+    style={{ ...style, display: visible ? "block" : "none" }} // ✅ visibility
+    {...listeners}
+    {...attributes}
+  >
+    {text}
+  </div>
+);
+
 }
 
 export default function EditPage({ videoUrl }: EditPageProps) {
@@ -101,7 +110,8 @@ export default function EditPage({ videoUrl }: EditPageProps) {
   const [trimMode, setTrimMode] = useState<"both" | "video" | "audio">("video");
   const videoContainerRef = useRef<HTMLDivElement | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-
+const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+const [isLoadingPreview, setIsLoadingPreview] = useState(false)
   const [zoomBox, setZoomBox] = useState({
     x: 100,
     y: 100,
@@ -111,7 +121,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
 
   const [zoomStartTime, setZoomStartTime] = useState(2); // in seconds
   const [zoomEndTime, setZoomEndTime] = useState(6); // in seconds
-  const [targetZoomLevel, setTargetZoomLevel] = useState(2); // 2x zoom
+  const [targetZoomLevel, setTargetZoomLevel] = useState(4); // 2x zoom
   const [videoWidth, setVideoWidth] = useState(960);
   const [videoHeight, setVideoHeight] = useState(540);
   const [showZoomTool, setShowZoomTool] = useState(false);
@@ -163,6 +173,147 @@ export default function EditPage({ videoUrl }: EditPageProps) {
       }
     };
   }, []);
+  const handleApplyTextToVideo = async () => {
+  if (!videoRef.current) return;
+
+  setIsLoading(true);
+
+  const startTime = (startTrim / 100) * videoDuration;
+  const endTime = (endTrim / 100) * videoDuration;
+
+  const video = document.createElement("video");
+  video.src = videoRef.current.src;
+  video.currentTime = startTime;
+  video.muted = true;
+  document.body.appendChild(video);
+
+  await new Promise<void>((resolve, reject) => {
+    video.onloadeddata = () => resolve();
+    video.onerror = () => reject("Video failed to load");
+  });
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  const stream = canvas.captureStream(30);
+  const recorder = new MediaRecorder(stream, {
+    mimeType: "video/webm; codecs=vp9",
+  });
+
+  const chunks: Blob[] = [];
+  recorder.ondataavailable = (e) => chunks.push(e.data);
+  recorder.start(100);
+
+  const draw = () => {
+    if (video.currentTime >= endTime) {
+      recorder.stop();
+      return;
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const currentTime = video.currentTime;
+
+    textOverlays.forEach((overlay) => {
+      if (currentTime >= overlay.startTime && currentTime <= overlay.endTime) {
+        ctx.fillStyle = overlay.color;
+        ctx.font = `${overlay.fontSize}px Arial`;
+        ctx.textBaseline = "top";
+        ctx.fillText(overlay.text, overlay.x, overlay.y);
+      }
+    });
+
+    requestAnimationFrame(draw);
+  };
+
+  video.onplay = () => requestAnimationFrame(draw);
+  video.play();
+
+  await new Promise<void>((resolve) => {
+    recorder.onstop = () => resolve();
+  });
+
+  const blob = new Blob(chunks, { type: "video/webm" });
+  const newUrl = URL.createObjectURL(blob);
+  setVideo(newUrl); // Update preview video
+  setTextOverlays([]); // Clear overlays after applying
+
+  document.body.removeChild(video);
+  setIsLoading(false);
+};
+useEffect(() => {
+  const video = videoRef.current;
+  if (!video) return;
+
+  const updateVisibility = () => {
+    const currentTime = video.currentTime;
+
+    setTextOverlays((prevOverlays) =>
+      prevOverlays.map((overlay) => ({
+        ...overlay,
+        visible:
+          currentTime >= overlay.startTime &&
+          currentTime <= overlay.endTime,
+      }))
+    );
+  };
+
+  video.addEventListener("timeupdate", updateVisibility);
+
+  return () => {
+    video.removeEventListener("timeupdate", updateVisibility);
+  };
+}, [videoRef.current]);
+
+
+const startZoomPreview = () => {
+  const canvas = previewCanvasRef.current;
+  const videoEl = videoRef.current;
+  if (!canvas || !videoEl) return;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const draw = () => {
+    if (videoEl.paused || videoEl.ended) return;
+
+    const currentTime = videoEl.currentTime;
+
+let zoomScale = 1;
+const zoomInDuration = 300; // ms (1 second)
+
+if (currentTime >= zoomStartTime && currentTime <= zoomEndTime) {
+  zoomScale = targetZoomLevel;
+} else {
+  zoomScale = 1;
+}
+
+
+
+
+    const zoomCenterX = zoomBox.x + zoomBox.width / 2;
+    const zoomCenterY = zoomBox.y + zoomBox.height / 2;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.scale(zoomScale, zoomScale);
+    ctx.translate(-zoomCenterX, -zoomCenterY);
+
+    ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    requestAnimationFrame(draw);
+  };
+
+  requestAnimationFrame(draw);
+};
 
   const handleAddTextOverlay = (
     text: string,
@@ -309,6 +460,19 @@ export default function EditPage({ videoUrl }: EditPageProps) {
   function easeInOutCubic(t: number) {
     return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   }
+const handleApplyZoom = async () => {
+  setIsLoading(true);
+  try {
+    await processZoomToVideo();
+  } catch (err) {
+    console.error("Zoom processing failed:", err);
+    alert("Failed to apply zoom effect.");
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+
 
   // Handle downloading trimmed video with all effects
   const handleDownload = async () => {
@@ -383,89 +547,258 @@ export default function EditPage({ videoUrl }: EditPageProps) {
       mediaRecorder.start(100); // Collect data every 100ms
 
       // Frame rendering function
-      const drawFrame = () => {
-        if (video.currentTime >= endTime || recordingFailed) {
-          console.log("Stopping recording");
-          mediaRecorder.stop();
-          return;
+     let zoomStartTimestamp: number | null = null; 
+const drawFrame = () => {
+  if (video.currentTime >= endTime || recordingFailed) {
+    console.log("Stopping recording");
+    mediaRecorder.stop();
+    return;
+  }
+
+  try {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const currentTime = video.currentTime;
+
+    // Fast transition: max 2 seconds
+    let zoomScale = 1;
+    const maxTransitionDuration = 2; // seconds
+    const zoomDuration = Math.min(zoomEndTime - zoomStartTime, maxTransitionDuration);
+
+    if (currentTime >= zoomStartTime && currentTime <= zoomEndTime) {
+      const progress = (currentTime - zoomStartTime) / zoomDuration;
+      zoomScale = 1 + (targetZoomLevel - 1) * easeInOutCubic(Math.min(progress, 1));
+    }
+
+    // DOM element references
+    const videoElement = videoRef.current;
+    const containerElement = videoContainerRef.current;
+    if (!videoElement || !containerElement) return;
+
+    const videoRect = videoElement.getBoundingClientRect();
+    const containerRect = containerElement.getBoundingClientRect();
+
+    // Real video resolution
+    const naturalWidth = video.videoWidth;
+    const naturalHeight = video.videoHeight;
+
+    // Adjust zoom box position to match video coordinates
+    const offsetX = zoomBox.x - (videoRect.left - containerRect.left);
+    const offsetY = zoomBox.y - (videoRect.top - containerRect.top);
+
+    const scaleX = naturalWidth / videoRect.width;
+    const scaleY = naturalHeight / videoRect.height;
+
+    const zoomCenterX = (offsetX + zoomBox.width / 2) * scaleX;
+    const zoomCenterY = (offsetY + zoomBox.height / 2) * scaleY;
+
+    ctx.save();
+
+    // Apply zoom transform centered on target area
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.scale(zoomScale, zoomScale);
+    ctx.translate(-zoomCenterX, -zoomCenterY);
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    // Apply sharpening only if currentTime is within the zoom period (zoomStartTime to zoomEndTime)
+    if (currentTime >= zoomStartTime && currentTime <= zoomEndTime) {
+      sharpenImage(canvas, ctx, video.videoWidth, video.videoHeight);
+
+    }
+
+    // Overlay text with zoom alignment
+    textOverlays.forEach((overlay) => {
+      if (currentTime >= overlay.startTime && currentTime <= overlay.endTime) {
+        const overlayX = overlay.x * scaleX;
+        const overlayY = overlay.y * scaleY;
+
+        const adjustedX = (overlayX - zoomCenterX) * zoomScale + canvas.width / 2;
+        const adjustedY = (overlayY - zoomCenterY) * zoomScale + canvas.height / 2;
+
+        ctx.fillStyle = overlay.color;
+        ctx.font = `${overlay.fontSize * zoomScale}px Arial`;
+        ctx.textBaseline = "top";
+        ctx.fillText(overlay.text, adjustedX, adjustedY);
+      }
+    });
+
+    requestAnimationFrame(drawFrame);
+  } catch (frameError) {
+    console.error("Frame rendering error:", frameError);
+    recordingFailed = true;
+    mediaRecorder.stop();
+  }
+};
+
+// Sharpen image using convolution
+// Sharpen image using convolution with dynamic strength based on video resolution
+const sharpenImage = (
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+  videoWidth: number,
+  videoHeight: number
+) => {
+  // Calculate video resolution (width x height)
+  const resolution = videoWidth * videoHeight;
+  
+  // Skip sharpening for high-quality videos (Full HD or higher)
+  if (resolution >= 1920 * 1080) {
+    console.log("High quality video, no sharpening applied.");
+    return;
+  }
+  console.log(`sharpning resolutiob`, resolution)
+  // Dynamically adjust sharpening strength based on resolution for lower quality videos
+  let sharpeningStrength = 1.5; // Default value for lower resolution videos
+  if (resolution >= 1280 * 720) {
+   return;
+  } else if (resolution >= 640 * 360) {
+    sharpeningStrength = 1.8; // Slightly stronger sharpening for 480p videos
+  }
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const output = new Uint8ClampedArray(data.length);
+  const width = imageData.width;
+  const height = imageData.height;
+
+  const kernel = [-1, -1, -1, -1, 9, -1, -1, -1, -1];
+
+  // Apply the sharpening filter
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      let r = 0,
+        g = 0,
+        b = 0;
+
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          const px = x + kx;
+          const py = y + ky;
+          const index = (py * width + px) * 4;
+          const k = kernel[(ky + 1) * 3 + (kx + 1)];
+          r += data[index] * k;
+          g += data[index + 1] * k;
+          b += data[index + 2] * k;
         }
+      }
 
-        try {
-          // Clear and draw video frame
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          const currentTime = video.currentTime;
+      const i = (y * width + x) * 4;
+      output[i] = Math.min(Math.max(r * sharpeningStrength, 0), 255);
+      output[i + 1] = Math.min(Math.max(g * sharpeningStrength, 0), 255);
+      output[i + 2] = Math.min(Math.max(b * sharpeningStrength, 0), 255);
+      output[i + 3] = data[i + 3]; // Alpha
+    }
+  }
 
-          // Transition-based zoom scale
-          let zoomScale = 1;
-          if (currentTime >= zoomStartTime && currentTime <= zoomEndTime) {
-            const progress =
-              (currentTime - zoomStartTime) / (zoomEndTime - zoomStartTime);
-            zoomScale = 1 + (targetZoomLevel - 1) * easeInOutCubic(progress);
+  ctx.putImageData(new ImageData(output, width, height), 0, 0);
+};
+
+
+
+function separableGaussianBlur(
+  imageData: ImageData,
+  width: number,
+  height: number,
+  radius: number
+): ImageData {
+  const sigma = radius;
+  const kernelSize = Math.max(3, Math.ceil(sigma * 3) * 2 + 1);
+  const half = Math.floor(kernelSize / 2);
+
+  const kernel = new Float32Array(kernelSize);
+  const twoSigmaSq = 2 * sigma * sigma;
+  let kernelSum = 0;
+
+  for (let i = -half; i <= half; i++) {
+    const weight = Math.exp(-(i * i) / twoSigmaSq);
+    kernel[i + half] = weight;
+    kernelSum += weight;
+  }
+
+  for (let i = 0; i < kernel.length; i++) {
+    kernel[i] /= kernelSum;
+  }
+
+  const temp = new Float32Array(width * height * 4);
+  const result = new Uint8ClampedArray(width * height * 4);
+  const src = imageData.data;
+
+  // Horizontal pass
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      for (let c = 0; c < 4; c++) {
+        let acc = 0;
+        for (let k = -half; k <= half; k++) {
+          const px = Math.min(width - 1, Math.max(0, x + k));
+          const idx = (y * width + px) * 4 + c;
+          acc += src[idx] * kernel[k + half];
+        }
+        temp[(y * width + x) * 4 + c] = acc;
+      }
+    }
+  }
+
+  // Vertical pass
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      for (let c = 0; c < 4; c++) {
+        let acc = 0;
+        for (let k = -half; k <= half; k++) {
+          const py = Math.min(height - 1, Math.max(0, y + k));
+          const idx = (py * width + x) * 4 + c;
+          acc += temp[idx] * kernel[k + half];
+        }
+        result[(y * width + x) * 4 + c] = Math.round(acc);
+      }
+    }
+  }
+
+  return new ImageData(result, width, height);
+}
+
+
+// Simple Gaussian blur (3x3 kernel)
+function gaussianBlur(imageData: ImageData, width: number, height: number, radius: number): ImageData {
+  const kernel = [
+    1, 2, 1,
+    2, 4, 2,
+    1, 2, 1
+  ];
+  const kernelSum = 16;
+  const src = imageData.data;
+  const dst = new Uint8ClampedArray(src.length);
+
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      for (let c = 0; c < 3; c++) {
+        let sum = 0;
+        for (let ky = -1; ky <= 1; ky++) {
+          for (let kx = -1; kx <= 1; kx++) {
+            const px = x + kx;
+            const py = y + ky;
+            const i = (py * width + px) * 4 + c;
+            const k = kernel[(ky + 1) * 3 + (kx + 1)];
+            sum += src[i] * k;
           }
-
-          // Compute center of zoom box
-          const zoomCenterX = zoomBox.x + zoomBox.width / 2;
-          const zoomCenterY = zoomBox.y + zoomBox.height / 2;
-
-          ctx.save();
-
-          // Translate to zoom center, apply scale, translate back
-          ctx.translate(canvas.width / 2, canvas.height / 2);
-          ctx.scale(zoomScale, zoomScale);
-          ctx.translate(-zoomCenterX, -zoomCenterY);
-
-          // Draw full video (zooming happens virtually through scale)
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-          ctx.restore();
-
-          // Apply effects
-          sharpenImage(canvas, ctx);
-
-          // Draw text overlays (with error handling)
-
-          textOverlays.forEach((overlay) => {
-            try {
-              if (
-                currentTime >= overlay.startTime &&
-                currentTime <= overlay.endTime
-              ) {
-                ctx.fillStyle = overlay.color;
-                ctx.font = `${
-                  overlay.fontSize * zoomLevel
-                }px Arial, sans-serif`;
-                ctx.textBaseline = "top";
-                ctx.fillText(
-                  overlay.text,
-                  overlay.x * zoomLevel,
-                  overlay.y * zoomLevel
-                );
-
-                // Debug visualization (remove in production)
-                ctx.strokeStyle = "rgba(255,0,0,0.3)";
-                ctx.strokeRect(
-                  overlay.x * zoomLevel,
-                  overlay.y * zoomLevel,
-                  ctx.measureText(overlay.text).width,
-                  overlay.fontSize * zoomLevel
-                );
-              }
-            } catch (textError) {
-              console.warn(
-                `Error rendering text "${overlay.text}":`,
-                textError
-              );
-            }
-          });
-
-          // Continue processing
-          requestAnimationFrame(drawFrame);
-        } catch (frameError) {
-          console.error("Frame rendering error:", frameError);
-          recordingFailed = true;
-          mediaRecorder.stop();
         }
-      };
+        const index = (y * width + x) * 4 + c;
+        dst[index] = sum / kernelSum;
+      }
+      // Preserve alpha channel
+      dst[(y * width + x) * 4 + 3] = src[(y * width + x) * 4 + 3];
+    }
+  }
+
+  return new ImageData(dst, width, height);
+}
+
+
+
+
+
+
+
 
       // Start processing when video plays
       video.onplay = () => {
@@ -520,6 +853,23 @@ export default function EditPage({ videoUrl }: EditPageProps) {
       });
     }
   };
+  function getAspectRatioBox(videoWidth: number, videoHeight: number, maxBoxWidth: number) {
+  const aspectRatio = videoWidth / videoHeight;
+  const width = maxBoxWidth;
+  const height = width / aspectRatio;
+  return { width, height };
+}
+useEffect(() => {
+  const maxBoxWidth = 200; // or some initial default
+  const { width, height } = getAspectRatioBox(videoWidth, videoHeight, maxBoxWidth);
+  setZoomBox({
+    x: 100,
+    y: 100,
+    width,
+    height,
+  });
+}, [videoWidth, videoHeight]);
+
   useEffect(() => {
     return () => {
       // Cleanup on unmount
@@ -530,6 +880,94 @@ export default function EditPage({ videoUrl }: EditPageProps) {
       }
     };
   }, []);
+  const processZoomToVideo = async () => {
+  if (!videoRef.current) return;
+
+  const startTime = (startTrim / 100) * videoDuration;
+  const endTime = (endTrim / 100) * videoDuration;
+
+  const video = document.createElement("video");
+  video.src = videoRef.current.src;
+  video.currentTime = startTime;
+  video.muted = true;
+  document.body.appendChild(video);
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject("Timeout"), 5000);
+    video.onloadeddata = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+    video.onerror = () => {
+      clearTimeout(timeout);
+      reject("Video failed to load");
+    };
+  });
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  const stream = canvas.captureStream(30);
+  const recorder = new MediaRecorder(stream, {
+    mimeType: "video/webm; codecs=vp9",
+  });
+
+  const chunks: Blob[] = [];
+
+  recorder.ondataavailable = (e) => {
+    if (e.data.size > 0) chunks.push(e.data);
+  };
+
+  let recordingDone = false;
+  recorder.onstop = () => (recordingDone = true);
+  recorder.start(100);
+
+  const draw = () => {
+    if (video.currentTime >= endTime || !ctx) {
+      recorder.stop();
+      return;
+    }
+
+    let scale = 1;
+    const t = video.currentTime;
+    if (t >= zoomStartTime && t <= zoomEndTime) {
+      const progress = (t - zoomStartTime) / (zoomEndTime - zoomStartTime);
+      scale = 1 + (targetZoomLevel - 1) * easeInOutCubic(progress);
+    }
+
+    const zoomCenterX = zoomBox.x + zoomBox.width / 2;
+    const zoomCenterY = zoomBox.y + zoomBox.height / 2;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.scale(scale, scale);
+    ctx.translate(-zoomCenterX, -zoomCenterY);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    requestAnimationFrame(draw);
+  };
+
+  video.onplay = () => requestAnimationFrame(draw);
+  video.play();
+
+  await new Promise<void>((resolve) => {
+    recorder.onstop = () => resolve();
+  });
+
+  if (chunks.length) {
+    const blob = new Blob(chunks, { type: "video/webm" });
+    const newUrl = URL.createObjectURL(blob);
+    setVideo(newUrl); // ✅ Replace original video
+  }
+
+  document.body.removeChild(video);
+};
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, delta } = event;
     const id = active.id as string;
@@ -554,6 +992,25 @@ export default function EditPage({ videoUrl }: EditPageProps) {
       audioUploadRef.current.click();
     }
   };
+  useEffect(() => {
+  if (video && videoRef.current && previewCanvasRef.current) {
+    // Wait for metadata, then play + start rendering
+    const videoEl = videoRef.current;
+
+    const handleLoaded = () => {
+      setVideoDuration(videoEl.duration || 0);
+      videoEl.play();
+      startZoomPreview();
+    };
+
+    videoEl.addEventListener("loadedmetadata", handleLoaded);
+
+    return () => {
+      videoEl.removeEventListener("loadedmetadata", handleLoaded);
+    };
+  }
+}, [video]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 font-[family-name:var(--font-geist-sans)]">
       <input
@@ -623,44 +1080,82 @@ export default function EditPage({ videoUrl }: EditPageProps) {
             {/* Vertical Line Separator */}
 
             {showZoomTool && (
-              <div className="bg-white rounded-lg p-4 mt-4 w-[300px]">
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                  Zoom Timing
-                </h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Zoom Start Time (seconds)
-                    </label>
-                    <input
-                      type="number"
-                      value={zoomStartTime}
-                      onChange={(e) =>
-                        setZoomStartTime(parseFloat(e.target.value))
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      min="0"
-                      step="0.1"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Zoom End Time (seconds)
-                    </label>
-                    <input
-                      type="number"
-                      value={zoomEndTime}
-                      onChange={(e) =>
-                        setZoomEndTime(parseFloat(e.target.value))
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                      min="0"
-                      step="0.1"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
+  <div className="bg-white rounded-lg p-4 mt-4 w-[300px]">
+    <h3 className="text-lg font-semibold text-gray-800 mb-2">
+      Zoom Timing
+    </h3>
+    <div className="space-y-3">
+      <div className="space-y-4">
+  <div className="flex flex-col">
+    <label className="text-sm font-semibold text-gray-800 mb-1">
+      📍 Zoom Start Time <span className="text-gray-500">(seconds)</span>
+    </label>
+    <input
+      type="number"
+      value={zoomStartTime}
+      onChange={(e) => setZoomStartTime(parseFloat(e.target.value))}
+      className="w-full px-4 py-2 border border-yellow-400 rounded-xl shadow-inner bg-yellow-50 text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500 transition duration-200"
+      placeholder="Enter start time"
+      min="0"
+      step="0.1"
+    />
+  </div>
+
+  <div className="flex flex-col">
+    <label className="text-sm font-semibold text-gray-800 mb-1">
+      🎯 Zoom End Time <span className="text-gray-500">(seconds)</span>
+    </label>
+    <input
+      type="number"
+      value={zoomEndTime}
+      onChange={(e) => setZoomEndTime(parseFloat(e.target.value))}
+      className="w-full px-4 py-2 border border-yellow-400 rounded-xl shadow-inner bg-yellow-50 text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500 transition duration-200"
+      placeholder="Enter end time"
+      min="0"
+      step="0.1"
+    />
+  </div>
+</div>
+
+
+      {/* ✅ APPLY ZOOM BUTTON */}
+      {!isLoading ? (
+  <button
+    onClick={handleApplyZoom}
+    className="mt-2 w-full flex items-center justify-center bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition-all duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2"
+  >
+    Apply Zoom
+  </button>
+) : (
+  <div className="mt-2 w-full flex items-center justify-center py-2">
+    <svg
+      className="animate-spin h-5 w-5 text-yellow-500 mr-2"
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+      ></circle>
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8v8H4z"
+      ></path>
+    </svg>
+    <span className="text-sm text-gray-700 font-medium">Processing...</span>
+  </div>
+)}
+
+    </div>
+  </div>
+)}
+
             {/* Active Sidebar Content */}
             {activeSidebar && (
               <div className="w-[300px] h-full">
@@ -841,92 +1336,65 @@ export default function EditPage({ videoUrl }: EditPageProps) {
                     <div className="relative w-full h-full">
                       <div className="relative w-full max-w-[960px] mx-auto">
                         {/* Base full video (unchanged) */}
-                        <video
-                          ref={videoRef}
-                          src={video}
-                          controls
-                          autoPlay
-                          muted
-                          crossOrigin="anonymous"
-                          className="w-full h-auto block"
-                          onLoadedMetadata={() => {
-                            if (videoRef.current) {
-                              setVideoDuration(videoRef.current.duration || 0);
-                            }
-                          }}
-                        />
+                        <div className="relative w-full max-w-[960px] mx-auto">
+  {/* Canvas for zoom rendering preview */}
+  <canvas
+  ref={previewCanvasRef}
+  width={videoWidth}
+  height={videoHeight}
+  className="hidden"
+/>
+
+
+  {/* Hidden video player (used to drive canvas frame updates) */}
+<video
+  ref={videoRef}
+  src={video}
+  muted
+  autoPlay
+  controls
+  className="w-full h-auto rounded-md"
+/>
+
+
+
+</div>
+
 
                         {/* Zoom box (visual only) */}
-                        {showZoomTool && (
-                          <div
-                            className="absolute border-2 border-dashed border-red-500 pointer-events-none"
-                            style={{
-                              top: `${zoomBox.y}px`,
-                              left: `${zoomBox.x}px`,
-                              width: `${zoomBox.width}px`,
-                              height: `${zoomBox.height}px`,
-                              zIndex: 5,
-                            }}
-                          />
-                        )}
+                        
 
                         {/* Zoomed video (clipped to red box) */}
-                        {showZoomTool && (
-                          <video
-                            src={video}
-                            autoPlay
-                            muted
-                            playsInline
-                            className="absolute"
-                            style={{
-                              top: `${zoomBox.y}px`,
-                              left: `${zoomBox.x}px`,
-                              width: `${zoomBox.width}px`,
-                              height: `${zoomBox.height}px`,
-                              transform: `scale(${zoomLevel})`,
-                              transformOrigin: "top left",
-                              objectFit: "none", // Do not stretch
-                              objectPosition: `-${zoomBox.x}px -${zoomBox.y}px`,
-                              transition: "transform 0.2s ease-in-out",
-                              zIndex: 10,
-                              pointerEvents: "none",
-                            }}
-                          />
-                        )}
+                        
                       </div>
 
                       {showZoomTool && (
                         <Rnd
-                          size={{
-                            width: zoomBox.width,
-                            height: zoomBox.height,
-                          }}
-                          position={{ x: zoomBox.x, y: zoomBox.y }}
-                          onDragStop={(e, d) =>
-                            setZoomBox((prev) => ({ ...prev, x: d.x, y: d.y }))
-                          }
-                          onResizeStop={(
-                            e,
-                            direction,
-                            ref,
-                            delta,
-                            position
-                          ) => {
-                            setZoomBox({
-                              width: parseInt(ref.style.width),
-                              height: parseInt(ref.style.height),
-                              x: position.x,
-                              y: position.y,
-                            });
-                          }}
-                          bounds="parent"
-                          style={{
-                            border: "2px dashed red",
-                            position: "absolute",
-                            zIndex: 20,
-                            pointerEvents: "auto",
-                          }}
-                        />
+  size={{ width: zoomBox.width, height: zoomBox.height }}
+  position={{ x: zoomBox.x, y: zoomBox.y }}
+  onDragStop={(e, d) =>
+    setZoomBox((prev) => ({ ...prev, x: d.x, y: d.y }))
+  }
+  onResizeStop={(e, direction, ref, delta, position) => {
+    const newWidth = parseInt(ref.style.width);
+    const newHeight = newWidth / (videoWidth / videoHeight); // maintain aspect ratio
+    setZoomBox({
+      width: newWidth,
+      height: newHeight,
+      x: position.x,
+      y: position.y,
+    });
+  }}
+  lockAspectRatio={videoWidth / videoHeight}
+  bounds="parent"
+  style={{
+    border: "2px dashed red",
+    position: "absolute",
+    zIndex: 20,
+    pointerEvents: "auto",
+  }}
+/>
+
                       )}
                       <DndContext onDragEnd={handleDragEnd}>
                         {textOverlays.map((overlay) => (
@@ -984,6 +1452,12 @@ export default function EditPage({ videoUrl }: EditPageProps) {
                             "Download Edited Video"
                           )}
                         </button>
+                         <button
+      onClick={handleApplyTextToVideo}
+      className="mt-4 ml-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white px-6 py-2 rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all transform hover:scale-105"
+    >
+      Apply Text To Video
+    </button>
                       </>
                     )}
                   </>

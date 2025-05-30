@@ -1175,7 +1175,7 @@ const updateVideoSource = async () => {
           />
         )}
       </div>
-<div className="mt-[-70px] max-w-full">
+{/* <div className="mt-[-70px] max-w-full">
   <h2 className="text-center text-2xl font-semibold text-gray-800 mb-4">
     Preview of Trimmed Video
   </h2>
@@ -1190,7 +1190,7 @@ const updateVideoSource = async () => {
       Your browser does not support the video tag.
     </video>
   </div>
-</div>
+</div> */}
 
       {/* Sticky Bottom Action Bar */}
       <div className="fixed bottom-5 left-1/2 transform z-50 -translate-x-1/2 flex items-center gap-6 bg-opacity-90 backdrop-blur-md p-0.5 rounded-full  border ">
