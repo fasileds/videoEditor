@@ -582,30 +582,42 @@ const drawFrame = () => {
     const naturalHeight = video.videoHeight;
 
     // Adjust zoom box position to match video coordinates
-    const offsetX = zoomBox.x - (videoRect.left - containerRect.left);
-    const offsetY = zoomBox.y - (videoRect.top - containerRect.top);
+   const videoDisplayWidth = videoRect.width;
+const videoDisplayHeight = videoRect.height;
 
-    const scaleX = naturalWidth / videoRect.width;
-    const scaleY = naturalHeight / videoRect.height;
+// Find ratio from displayed video to actual pixel size
+const scaleX = naturalWidth / videoDisplayWidth;
+const scaleY = naturalHeight / videoDisplayHeight;
 
-    const zoomCenterX = (offsetX + zoomBox.width / 2) * scaleX;
-    const zoomCenterY = (offsetY + zoomBox.height / 2) * scaleY;
+// Convert zoom box from DOM coordinates to video pixel coordinates
+const zoomBoxCenterX = (zoomBox.x + zoomBox.width / 2) - (videoRect.left - containerRect.left);
+const zoomBoxCenterY = (zoomBox.y + zoomBox.height / 2) - (videoRect.top - containerRect.top);
+
+const zoomCenterX = zoomBoxCenterX * scaleX;
+const zoomCenterY = zoomBoxCenterY * scaleY;
+
 
     ctx.save();
 
-    // Apply zoom transform centered on target area
-    ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.scale(zoomScale, zoomScale);
-    ctx.translate(-zoomCenterX, -zoomCenterY);
+const scaleOffsetX = zoomCenterX * (zoomScale - 1);
+const scaleOffsetY = zoomCenterY * (zoomScale - 1);
 
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    ctx.restore();
+ctx.translate(-scaleOffsetX, -scaleOffsetY);
+ctx.scale(zoomScale, zoomScale);
+ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+ctx.restore();
+
 
     // Apply sharpening only if currentTime is within the zoom period (zoomStartTime to zoomEndTime)
-    if (currentTime >= zoomStartTime && currentTime <= zoomEndTime) {
-      sharpenImage(canvas, ctx, video.videoWidth, video.videoHeight);
+    if (
+  currentTime >= zoomStartTime &&
+  currentTime <= zoomEndTime &&
+  Math.abs(zoomScale - targetZoomLevel) < 0.01 // only when fully zoomed
+) {
+  sharpenImage(canvas, ctx, video.videoWidth, video.videoHeight);
+}
 
-    }
 
     // Overlay text with zoom alignment
     textOverlays.forEach((overlay) => {
@@ -1039,30 +1051,30 @@ useEffect(() => {
             <div className="w-16 ml-0 h-auto">
               <div className="bg-white rounded-lg p-2 h-full flex flex-col">
                 <div className="space-y-2">
-                  <button
+                  {/* <button
                     onClick={triggerVideoUpload}
                     className="flex items-center justify-center p-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                   >
                     <VideoCameraIcon className="w-5 h-5" />
-                  </button>
-                  <button
+                  </button> */}
+                  {/* <button
                     onClick={triggerAudioUpload}
                     className="flex items-center justify-center p-2 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-lg hover:from-green-600 hover:to-green-700 transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
                   >
                     <MusicalNoteIcon className="w-5 h-5" />
-                  </button>
+                  </button> */}
                   <button
                     onClick={handleAddText}
                     className="flex items-center justify-center p-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
                   >
                     <DocumentTextIcon className="w-5 h-5" />
                   </button>
-                  <button
+                  {/* <button
                     onClick={() => setShowTrimTools(!showTrimTools)}
                     className="flex items-center justify-center p-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg hover:from-red-600 hover:to-red-700 transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
                   >
                     <ScissorsIcon className="w-5 h-5" />
-                  </button>
+                  </button> */}
                   <button
                     onClick={() => setShowZoomTool(!showZoomTool)}
                     className={`flex items-center justify-center p-2 bg-gradient-to-r ${
@@ -1413,7 +1425,7 @@ useEffect(() => {
                       </DndContext>
                     </div>
 
-                    {showTrimTools && (
+                    
                       <TrimTools
                         videoRef={videoRef}
                         audioRef={audioRef}
@@ -1432,8 +1444,8 @@ useEffect(() => {
                         trimMode={trimMode}
                         setTrimMode={setTrimMode}
                       />
-                    )}
-                    {showTrimTools && (
+                   
+                 
                       <>
                         <button
                           onClick={handleDone}
@@ -1459,15 +1471,26 @@ useEffect(() => {
       Apply Text To Video
     </button>
                       </>
-                    )}
+                   
                   </>
                 ) : (
-                  <div className="text-center">
-                    <PlayIcon className="w-12 h-12 mx-auto text-gray-400" />
-                    <p className="text-gray-500 mt-2">
-                      Add a video from the sidebar to start editing
-                    </p>
-                  </div>
+                  <div
+  className="flex flex-col items-center justify-center border-4 border-dashed border-gray-300 bg-white rounded-lg p-8 cursor-pointer hover:border-blue-400 transition"
+  onClick={triggerVideoUpload}
+  onDragOver={(e) => e.preventDefault()}
+  onDrop={(e) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file?.type.startsWith("video/")) {
+      handleVideoUpload({ target: { files: [file] } });
+    }
+  }}
+>
+  <VideoCameraIcon className="w-12 h-12 text-blue-400 mb-4" />
+  <p className="text-gray-700 font-semibold">Click or drag a video file here to upload</p>
+  <p className="text-sm text-gray-500 mt-1">Supported formats: mp4, webm, mov, etc.</p>
+</div>
+
                 )}
               </div>
 
