@@ -94,6 +94,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
   } | null>(null);
   const [tooltipTime, setTooltipTime] = useState<string>("");
   const [isTrimmed, setIsTrimmed] = useState(false);
+  const [processedBlobUrl, setProcessedBlobUrl] = useState<string | null>(null);
   const [activeSidebar, setActiveSidebar] = useState<
     "video" | "audio" | "text" | null
   >(null);
@@ -476,6 +477,20 @@ const handleApplyZoom = async () => {
 
   // Handle downloading trimmed video with all effects
   const handleDownload = async () => {
+    if (processedBlobUrl) {
+    // ✅ Skip processing, just download
+    const a = document.createElement("a");
+    a.href = processedBlobUrl;
+    a.download = `edited-video-${Date.now()}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(processedBlobUrl); // Clean up
+      setProcessedBlobUrl(null);             // Optionally reset
+    }, 100);
+    return;
+  }
     if (!videoRef.current) {
       console.error("Video reference not found");
       return;
@@ -892,93 +907,179 @@ useEffect(() => {
       }
     };
   }, []);
-  const processZoomToVideo = async () => {
-  if (!videoRef.current) return;
-
-  const startTime = (startTrim / 100) * videoDuration;
-  const endTime = (endTrim / 100) * videoDuration;
-
-  const video = document.createElement("video");
-  video.src = videoRef.current.src;
-  video.currentTime = startTime;
-  video.muted = true;
-  document.body.appendChild(video);
-
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => reject("Timeout"), 5000);
-    video.onloadeddata = () => {
-      clearTimeout(timeout);
-      resolve();
-    };
-    video.onerror = () => {
-      clearTimeout(timeout);
-      reject("Video failed to load");
-    };
-  });
-
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-
-  const stream = canvas.captureStream(30);
-  const recorder = new MediaRecorder(stream, {
-    mimeType: "video/webm; codecs=vp9",
-  });
-
-  const chunks: Blob[] = [];
-
-  recorder.ondataavailable = (e) => {
-    if (e.data.size > 0) chunks.push(e.data);
-  };
-
-  let recordingDone = false;
-  recorder.onstop = () => (recordingDone = true);
-  recorder.start(100);
-
-  const draw = () => {
-    if (video.currentTime >= endTime || !ctx) {
-      recorder.stop();
-      return;
-    }
-
-    let scale = 1;
-    const t = video.currentTime;
-    if (t >= zoomStartTime && t <= zoomEndTime) {
-      const progress = (t - zoomStartTime) / (zoomEndTime - zoomStartTime);
-      scale = 1 + (targetZoomLevel - 1) * easeInOutCubic(progress);
-    }
-
-    const zoomCenterX = zoomBox.x + zoomBox.width / 2;
-    const zoomCenterY = zoomBox.y + zoomBox.height / 2;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.save();
-    ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.scale(scale, scale);
-    ctx.translate(-zoomCenterX, -zoomCenterY);
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    ctx.restore();
-
-    requestAnimationFrame(draw);
-  };
-
-  video.onplay = () => requestAnimationFrame(draw);
-  video.play();
-
-  await new Promise<void>((resolve) => {
-    recorder.onstop = () => resolve();
-  });
-
-  if (chunks.length) {
-    const blob = new Blob(chunks, { type: "video/webm" });
-    const newUrl = URL.createObjectURL(blob);
-    setVideo(newUrl); // ✅ Replace original video
+const processZoomToVideo = async () => {
+  if (!videoRef.current) {
+    console.error("Video reference not found");
+    return;
   }
 
-  document.body.removeChild(video);
+  setIsLoading(true);
+  console.log("Starting zoom-only video processing...");
+
+  try {
+    const startTime = (startTrim / 100) * videoDuration;
+    const endTime = (endTrim / 100) * videoDuration;
+    console.log(`Trimming from ${startTime}s to ${endTime}s`);
+
+    const video = document.createElement("video");
+    video.src = videoRef.current.src;
+    video.currentTime = startTime;
+    video.muted = true;
+    document.body.appendChild(video);
+
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Video loading timed out")), 5000);
+      video.onloadeddata = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+      video.onerror = () => {
+        clearTimeout(timeout);
+        reject(new Error("Video loading failed"));
+      };
+    });
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Could not get canvas context");
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const stream = canvas.captureStream(30);
+    const mediaRecorder = new MediaRecorder(stream, {
+      mimeType: "video/webm; codecs=vp9",
+    });
+
+    const chunks: Blob[] = [];
+    let recordingFailed = false;
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+
+    mediaRecorder.onerror = (e) => {
+      console.error("MediaRecorder error:", e);
+      recordingFailed = true;
+      mediaRecorder.stop();
+    };
+
+    mediaRecorder.start(100);
+
+    const drawFrame = () => {
+      if (video.currentTime >= endTime || recordingFailed) {
+        mediaRecorder.stop();
+        return;
+      }
+
+      try {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const currentTime = video.currentTime;
+
+        let zoomScale = 1;
+        const maxTransitionDuration = 2;
+        const zoomDuration = Math.min(zoomEndTime - zoomStartTime, maxTransitionDuration);
+        if (currentTime >= zoomStartTime && currentTime <= zoomEndTime) {
+          const progress = (currentTime - zoomStartTime) / zoomDuration;
+          zoomScale = 1 + (targetZoomLevel - 1) * easeInOutCubic(Math.min(progress, 1));
+        }
+
+        const videoElement = videoRef.current;
+        const containerElement = videoContainerRef.current;
+        if (!videoElement || !containerElement) return;
+
+        const videoRect = videoElement.getBoundingClientRect();
+        const containerRect = containerElement.getBoundingClientRect();
+        const scaleX = video.videoWidth / videoRect.width;
+        const scaleY = video.videoHeight / videoRect.height;
+
+        const zoomBoxCenterX = (zoomBox.x + zoomBox.width / 2) - (videoRect.left - containerRect.left);
+        const zoomBoxCenterY = (zoomBox.y + zoomBox.height / 2) - (videoRect.top - containerRect.top);
+        const zoomCenterX = zoomBoxCenterX * scaleX;
+        const zoomCenterY = zoomBoxCenterY * scaleY;
+
+        const scaleOffsetX = zoomCenterX * (zoomScale - 1);
+        const scaleOffsetY = zoomCenterY * (zoomScale - 1);
+
+        ctx.save();
+        ctx.translate(-scaleOffsetX, -scaleOffsetY);
+        ctx.scale(zoomScale, zoomScale);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        ctx.restore();
+
+        if (
+          currentTime >= zoomStartTime &&
+          currentTime <= zoomEndTime &&
+          Math.abs(zoomScale - targetZoomLevel) < 0.01
+        ) {
+          sharpenImage(canvas, ctx, video.videoWidth, video.videoHeight);
+        }
+
+        textOverlays.forEach((overlay) => {
+          if (currentTime >= overlay.startTime && currentTime <= overlay.endTime) {
+            const overlayX = overlay.x * scaleX;
+            const overlayY = overlay.y * scaleY;
+
+            const adjustedX = (overlayX - zoomCenterX) * zoomScale + canvas.width / 2;
+            const adjustedY = (overlayY - zoomCenterY) * zoomScale + canvas.height / 2;
+
+            ctx.fillStyle = overlay.color;
+            ctx.font = `${overlay.fontSize * zoomScale}px Arial`;
+            ctx.textBaseline = "top";
+            ctx.fillText(overlay.text, adjustedX, adjustedY);
+          }
+        });
+
+        requestAnimationFrame(drawFrame);
+      } catch (err) {
+        console.error("Frame rendering error:", err);
+        recordingFailed = true;
+        mediaRecorder.stop();
+      }
+    };
+
+    video.onplay = () => {
+      console.log("Zoom rendering started");
+      requestAnimationFrame(drawFrame);
+    };
+
+    await new Promise<void>((resolve) => {
+      mediaRecorder.onstop = () => {
+        console.log("Zoom render recording stopped");
+        resolve();
+      };
+
+      video.play().catch((e) => {
+        console.error("Playback failed:", e);
+        recordingFailed = true;
+        mediaRecorder.stop();
+      });
+    });
+
+    if (!recordingFailed && chunks.length > 0) {
+      const blob = new Blob(chunks, { type: "video/webm" });
+      const url = URL.createObjectURL(blob);
+      setVideo(url); // 🔁 Replaces current video with zoomed version
+      setProcessedBlobUrl(url); 
+    } else {
+      throw new Error("Recording failed - no data available");
+    }
+  } catch (error) {
+    console.error("Zoom processing failed:", error);
+    alert(
+      `Error applying zoom: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  } finally {
+    setIsLoading(false);
+    document.querySelectorAll("video").forEach((el) => {
+      if (el !== videoRef.current) el.remove();
+    });
+  }
 };
+
+
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, delta } = event;
@@ -1426,24 +1527,27 @@ useEffect(() => {
                     </div>
 
                     
-                      <TrimTools
-                        videoRef={videoRef}
-                        audioRef={audioRef}
-                        startTrim={startTrim}
-                        endTrim={endTrim}
-                        setStartTrim={setStartTrim}
-                        setEndTrim={setEndTrim}
-                        videoDuration={videoDuration}
-                        audioDuration={audioDuration}
-                        isDragging={isDragging}
-                        setIsDragging={setIsDragging}
-                        tooltipPosition={tooltipPosition}
-                        setTooltipPosition={setTooltipPosition}
-                        tooltipTime={tooltipTime}
-                        setTooltipTime={setTooltipTime}
-                        trimMode={trimMode}
-                        setTrimMode={setTrimMode}
-                      />
+                     {videoDuration > 0 && (
+  <TrimTools
+    videoRef={videoRef}
+    audioRef={audioRef}
+    startTrim={startTrim}
+    endTrim={endTrim}
+    setStartTrim={setStartTrim}
+    setEndTrim={setEndTrim}
+    videoDuration={videoDuration}
+    audioDuration={audioDuration}
+    isDragging={isDragging}
+    setIsDragging={setIsDragging}
+    tooltipPosition={tooltipPosition}
+    setTooltipPosition={setTooltipPosition}
+    tooltipTime={tooltipTime}
+    setTooltipTime={setTooltipTime}
+    trimMode={trimMode}
+    setTrimMode={setTrimMode}
+  />
+)}
+
                    
                  
                       <>
