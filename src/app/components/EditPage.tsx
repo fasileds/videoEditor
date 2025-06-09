@@ -98,7 +98,7 @@ export default function EditPage({ videoUrl }: EditPageProps) {
   const [activeSidebar, setActiveSidebar] = useState<
     "video" | "audio" | "text" | null
   >(null);
-  const [zoomLevel, setZoomLevel] = useState(1);
+  const [zoomLevel, setZoomLevel] = useState(2);
   const [videos, setVideos] = useState<string[]>([]);
   const [audios, setAudios] = useState<string[]>([]);
   const [texts, setTexts] = useState<string[]>([]);
@@ -574,17 +574,6 @@ const drawFrame = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const currentTime = video.currentTime;
 
-    // Fast transition: max 2 seconds
-    let zoomScale = 1;
-    const maxTransitionDuration = 2; // seconds
-    const zoomDuration = Math.min(zoomEndTime - zoomStartTime, maxTransitionDuration);
-
-    if (currentTime >= zoomStartTime && currentTime <= zoomEndTime) {
-      const progress = (currentTime - zoomStartTime) / zoomDuration;
-      zoomScale = 1 + (targetZoomLevel - 1) * easeInOutCubic(Math.min(progress, 1));
-    }
-
-    // DOM element references
     const videoElement = videoRef.current;
     const containerElement = videoContainerRef.current;
     if (!videoElement || !containerElement) return;
@@ -592,49 +581,77 @@ const drawFrame = () => {
     const videoRect = videoElement.getBoundingClientRect();
     const containerRect = containerElement.getBoundingClientRect();
 
-    // Real video resolution
     const naturalWidth = video.videoWidth;
     const naturalHeight = video.videoHeight;
 
-    // Adjust zoom box position to match video coordinates
-   const videoDisplayWidth = videoRect.width;
-const videoDisplayHeight = videoRect.height;
+    const videoDisplayWidth = videoRect.width;
+    const videoDisplayHeight = videoRect.height;
 
-// Find ratio from displayed video to actual pixel size
-const scaleX = naturalWidth / videoDisplayWidth;
-const scaleY = naturalHeight / videoDisplayHeight;
+    const scaleX = naturalWidth / videoDisplayWidth;
+    const scaleY = naturalHeight / videoDisplayHeight;
 
-// Convert zoom box from DOM coordinates to video pixel coordinates
-const zoomBoxCenterX = (zoomBox.x + zoomBox.width / 2) - (videoRect.left - containerRect.left);
-const zoomBoxCenterY = (zoomBox.y + zoomBox.height / 2) - (videoRect.top - containerRect.top);
+    const zoomBoxCenterX = (zoomBox.x + zoomBox.width / 2) - (videoRect.left - containerRect.left);
+    const zoomBoxCenterY = (zoomBox.y + zoomBox.height / 2) - (videoRect.top - containerRect.top);
+    const zoomCenterX = zoomBoxCenterX * scaleX;
+    const zoomCenterY = zoomBoxCenterY * scaleY;
 
-const zoomCenterX = zoomBoxCenterX * scaleX;
-const zoomCenterY = zoomBoxCenterY * scaleY;
+    // Compute max zoom based on box size
+    const zoomScaleX = naturalWidth / (zoomBox.width * scaleX);
+    const zoomScaleY = naturalHeight / (zoomBox.height * scaleY);
+    const maxZoom = Math.min(zoomScaleX, zoomScaleY);
 
+    let zoomScale = 1;
 
-    ctx.save();
+    // 🔁 Transition duration (speed of zoom in/out)
+    const transitionDuration = 2; // seconds (faster)
 
-const scaleOffsetX = zoomCenterX * (zoomScale - 1);
-const scaleOffsetY = zoomCenterY * (zoomScale - 1);
-
-ctx.translate(-scaleOffsetX, -scaleOffsetY);
-ctx.scale(zoomScale, zoomScale);
-ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-ctx.restore();
-
-
-    // Apply sharpening only if currentTime is within the zoom period (zoomStartTime to zoomEndTime)
+    // Zoom in phase
     if (
-  currentTime >= zoomStartTime &&
-  currentTime <= zoomEndTime &&
-  Math.abs(zoomScale - targetZoomLevel) < 0.01 // only when fully zoomed
-) {
-  sharpenImage(canvas, ctx, video.videoWidth, video.videoHeight);
-}
+      currentTime >= zoomStartTime &&
+      currentTime < zoomStartTime + transitionDuration
+    ) {
+      const t = (currentTime - zoomStartTime) / transitionDuration;
+      zoomScale = 1 + (maxZoom - 1) * easeInOutCubic(t);
+    }
 
+    // Fully zoomed-in phase
+    else if (
+      currentTime >= zoomStartTime + transitionDuration &&
+      currentTime <= zoomEndTime - transitionDuration
+    ) {
+      zoomScale = maxZoom;
+    }
 
-    // Overlay text with zoom alignment
+    // Zoom out phase
+    else if (
+      currentTime > zoomEndTime - transitionDuration &&
+      currentTime <= zoomEndTime
+    ) {
+      const t = (zoomEndTime - currentTime) / transitionDuration;
+      zoomScale = 1 + (maxZoom - 1) * easeInOutCubic(t);
+    }
+
+    // Else: zoomScale = 1 (no zoom)
+
+    // Apply zoom transform
+    ctx.save();
+    const scaleOffsetX = zoomCenterX * (zoomScale - 1);
+    const scaleOffsetY = zoomCenterY * (zoomScale - 1);
+    ctx.translate(-scaleOffsetX, -scaleOffsetY);
+    ctx.scale(zoomScale, zoomScale);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    // ✅ Sharpen only when fully zoomed in
+    const fullyZoomed =
+      currentTime >= zoomStartTime + transitionDuration &&
+      currentTime <= zoomEndTime - transitionDuration;
+
+    if (fullyZoomed) {
+      sharpenImage(canvas, ctx, naturalWidth, naturalHeight);
+    }
+
+    // Draw overlays with zoom adjustments
     textOverlays.forEach((overlay) => {
       if (currentTime >= overlay.startTime && currentTime <= overlay.endTime) {
         const overlayX = overlay.x * scaleX;
@@ -657,6 +674,8 @@ ctx.restore();
     mediaRecorder.stop();
   }
 };
+
+
 
 // Sharpen image using convolution
 // Sharpen image using convolution with dynamic strength based on video resolution
@@ -967,76 +986,116 @@ const processZoomToVideo = async () => {
     mediaRecorder.start(100);
 
     const drawFrame = () => {
-      if (video.currentTime >= endTime || recordingFailed) {
-        mediaRecorder.stop();
-        return;
+  if (video.currentTime >= endTime || recordingFailed) {
+    console.log("Stopping recording");
+    mediaRecorder.stop();
+    return;
+  }
+
+  try {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const currentTime = video.currentTime;
+
+    const videoElement = videoRef.current;
+    const containerElement = videoContainerRef.current;
+    if (!videoElement || !containerElement) return;
+
+    const videoRect = videoElement.getBoundingClientRect();
+    const containerRect = containerElement.getBoundingClientRect();
+
+    const naturalWidth = video.videoWidth;
+    const naturalHeight = video.videoHeight;
+
+    const videoDisplayWidth = videoRect.width;
+    const videoDisplayHeight = videoRect.height;
+
+    const scaleX = naturalWidth / videoDisplayWidth;
+    const scaleY = naturalHeight / videoDisplayHeight;
+
+    const zoomBoxCenterX = (zoomBox.x + zoomBox.width / 2) - (videoRect.left - containerRect.left);
+    const zoomBoxCenterY = (zoomBox.y + zoomBox.height / 2) - (videoRect.top - containerRect.top);
+    const zoomCenterX = zoomBoxCenterX * scaleX;
+    const zoomCenterY = zoomBoxCenterY * scaleY;
+
+    // Compute max zoom based on box size
+    const zoomScaleX = naturalWidth / (zoomBox.width * scaleX);
+    const zoomScaleY = naturalHeight / (zoomBox.height * scaleY);
+    const maxZoom = Math.min(zoomScaleX, zoomScaleY);
+
+    let zoomScale = 1;
+
+    // 🔁 Transition duration (speed of zoom in/out)
+    const transitionDuration = 2; // seconds (faster)
+
+    // Zoom in phase
+    if (
+      currentTime >= zoomStartTime &&
+      currentTime < zoomStartTime + transitionDuration
+    ) {
+      const t = (currentTime - zoomStartTime) / transitionDuration;
+      zoomScale = 1 + (maxZoom - 1) * easeInOutCubic(t);
+    }
+
+    // Fully zoomed-in phase
+    else if (
+      currentTime >= zoomStartTime + transitionDuration &&
+      currentTime <= zoomEndTime - transitionDuration
+    ) {
+      zoomScale = maxZoom;
+    }
+
+    // Zoom out phase
+    else if (
+      currentTime > zoomEndTime - transitionDuration &&
+      currentTime <= zoomEndTime
+    ) {
+      const t = (zoomEndTime - currentTime) / transitionDuration;
+      zoomScale = 1 + (maxZoom - 1) * easeInOutCubic(t);
+    }
+
+    // Else: zoomScale = 1 (no zoom)
+
+    // Apply zoom transform
+    ctx.save();
+    const scaleOffsetX = zoomCenterX * (zoomScale - 1);
+    const scaleOffsetY = zoomCenterY * (zoomScale - 1);
+    ctx.translate(-scaleOffsetX, -scaleOffsetY);
+    ctx.scale(zoomScale, zoomScale);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    // ✅ Sharpen only when fully zoomed in
+    const fullyZoomed =
+      currentTime >= zoomStartTime + transitionDuration &&
+      currentTime <= zoomEndTime - transitionDuration;
+
+    if (fullyZoomed) {
+      sharpenImage(canvas, ctx, naturalWidth, naturalHeight);
+    }
+
+    // Draw overlays with zoom adjustments
+    textOverlays.forEach((overlay) => {
+      if (currentTime >= overlay.startTime && currentTime <= overlay.endTime) {
+        const overlayX = overlay.x * scaleX;
+        const overlayY = overlay.y * scaleY;
+
+        const adjustedX = (overlayX - zoomCenterX) * zoomScale + canvas.width / 2;
+        const adjustedY = (overlayY - zoomCenterY) * zoomScale + canvas.height / 2;
+
+        ctx.fillStyle = overlay.color;
+        ctx.font = `${overlay.fontSize * zoomScale}px Arial`;
+        ctx.textBaseline = "top";
+        ctx.fillText(overlay.text, adjustedX, adjustedY);
       }
+    });
 
-      try {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const currentTime = video.currentTime;
-
-        let zoomScale = 1;
-        const maxTransitionDuration = 2;
-        const zoomDuration = Math.min(zoomEndTime - zoomStartTime, maxTransitionDuration);
-        if (currentTime >= zoomStartTime && currentTime <= zoomEndTime) {
-          const progress = (currentTime - zoomStartTime) / zoomDuration;
-          zoomScale = 1 + (targetZoomLevel - 1) * easeInOutCubic(Math.min(progress, 1));
-        }
-
-        const videoElement = videoRef.current;
-        const containerElement = videoContainerRef.current;
-        if (!videoElement || !containerElement) return;
-
-        const videoRect = videoElement.getBoundingClientRect();
-        const containerRect = containerElement.getBoundingClientRect();
-        const scaleX = video.videoWidth / videoRect.width;
-        const scaleY = video.videoHeight / videoRect.height;
-
-        const zoomBoxCenterX = (zoomBox.x + zoomBox.width / 2) - (videoRect.left - containerRect.left);
-        const zoomBoxCenterY = (zoomBox.y + zoomBox.height / 2) - (videoRect.top - containerRect.top);
-        const zoomCenterX = zoomBoxCenterX * scaleX;
-        const zoomCenterY = zoomBoxCenterY * scaleY;
-
-        const scaleOffsetX = zoomCenterX * (zoomScale - 1);
-        const scaleOffsetY = zoomCenterY * (zoomScale - 1);
-
-        ctx.save();
-        ctx.translate(-scaleOffsetX, -scaleOffsetY);
-        ctx.scale(zoomScale, zoomScale);
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        ctx.restore();
-
-        if (
-          currentTime >= zoomStartTime &&
-          currentTime <= zoomEndTime &&
-          Math.abs(zoomScale - targetZoomLevel) < 0.01
-        ) {
-          sharpenImage(canvas, ctx, video.videoWidth, video.videoHeight);
-        }
-
-        textOverlays.forEach((overlay) => {
-          if (currentTime >= overlay.startTime && currentTime <= overlay.endTime) {
-            const overlayX = overlay.x * scaleX;
-            const overlayY = overlay.y * scaleY;
-
-            const adjustedX = (overlayX - zoomCenterX) * zoomScale + canvas.width / 2;
-            const adjustedY = (overlayY - zoomCenterY) * zoomScale + canvas.height / 2;
-
-            ctx.fillStyle = overlay.color;
-            ctx.font = `${overlay.fontSize * zoomScale}px Arial`;
-            ctx.textBaseline = "top";
-            ctx.fillText(overlay.text, adjustedX, adjustedY);
-          }
-        });
-
-        requestAnimationFrame(drawFrame);
-      } catch (err) {
-        console.error("Frame rendering error:", err);
-        recordingFailed = true;
-        mediaRecorder.stop();
-      }
-    };
+    requestAnimationFrame(drawFrame);
+  } catch (frameError) {
+    console.error("Frame rendering error:", frameError);
+    recordingFailed = true;
+    mediaRecorder.stop();
+  }
+};
 
     video.onplay = () => {
       console.log("Zoom rendering started");
